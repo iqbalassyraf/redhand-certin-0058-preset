@@ -31,6 +31,7 @@ redhand-certin-0058 = "redhand_fintech_shield.__main__:main"
 dev = [
     "rich>=13.9.0",
     "pytest>=8.3",
+    "pytest-cov>=6.0",
     "ruff>=0.7",
     "mypy>=1.13",
     "types-PyYAML>=6.0",
@@ -48,7 +49,20 @@ packages = ["src/redhand_fintech_shield"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers"
+addopts = "-ra --strict-markers --cov=redhand_fintech_shield --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["src/redhand_fintech_shield"]
+
+[tool.coverage.report]
+fail_under = 97
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
 
 [tool.ruff]
 line-length = 100
