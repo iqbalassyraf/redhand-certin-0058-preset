@@ -49,25 +49,44 @@ tampering attempt being detected.
 ```python
 from decimal import Decimal
 from redhand_fintech_shield import (
-    AgentTokenIssuer, AgentTokenVerifier, Env, Shield, ToolCallContext, load_policy, redhand_guard,
+    AgentTokenIssuer,
+    AgentTokenVerifier,
+    Env,
+    Shield,
+    ToolCallContext,
+    load_policy,
+    redhand_guard,
 )
 
-private, public = AgentTokenIssuer.generate_keypair()       # or: python -m redhand_fintech_shield keygen
+private, public = AgentTokenIssuer.generate_keypair()  # or: python -m redhand_fintech_shield keygen
 shield = Shield(load_policy(), AgentTokenVerifier(public))  # load_policy() = bundled preset
 
+
 @redhand_guard(shield)
-def settle_merchant(merchant_id: str, *, ctx: ToolCallContext) -> str:
-    ...  # the real settlement call
+def settle_merchant(
+    merchant_id: str, *, ctx: ToolCallContext
+) -> str: ...  # the real settlement call
+
 
 token = AgentTokenIssuer(private).mint(
-    subject="svc-settlement-agent", agent_run_id="run-42", env=Env.PROD,
-    allowed_tools=["settle_merchant"],          # least privilege, pinned by the signature
-    ttl_seconds=900, hitl_step_up=False,        # True only after a human co-signs this run
+    subject="svc-settlement-agent",
+    agent_run_id="run-42",
+    env=Env.PROD,
+    allowed_tools=["settle_merchant"],  # least privilege, pinned by the signature
+    ttl_seconds=900,
+    hitl_step_up=False,  # True only after a human co-signs this run
 )
-settle_merchant("m-1", ctx=ToolCallContext(
-    agent_run_id="run-42", tool_name="settle_merchant", target_env=Env.PROD,
-    token=token, amount=Decimal("25000"), currency="USD",
-))                                              # raises HITLRequiredError; the tool never runs
+settle_merchant(
+    "m-1",
+    ctx=ToolCallContext(
+        agent_run_id="run-42",
+        tool_name="settle_merchant",
+        target_env=Env.PROD,
+        token=token,
+        amount=Decimal("25000"),
+        currency="USD",
+    ),
+)  # raises HITLRequiredError; the tool never runs
 ```
 
 Async tools work the same way. Violations raise typed exceptions (`TokenPivotError`,
