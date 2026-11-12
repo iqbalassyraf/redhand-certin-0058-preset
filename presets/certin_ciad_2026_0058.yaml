@@ -1,0 +1,62 @@
+# RedHand preset: CERT-In CIAD-2026-0058 (CRAFTY FALCON) + CIAD-2026-0049 (AI Agents as Attack Vectors)
+#
+# Monetary values are QUOTED STRINGS on purpose: YAML floats are rejected by the schema.
+# Currency thresholds are static, per currency, and must be reviewed by the operator.
+# Unknown currencies fail CLOSED (treated as a probe candidate and as above the HITL threshold).
+
+preset_id: certin_ciad_2026_0058
+mode: enforce                     # enforce | observe_only (RedHand M4.3)
+
+# --- Identity (CIAD-2026-0049: separate, short-lived, least-privilege identity per agent run) ---
+issuer: redhand
+max_token_ttl_seconds: 3600       # tokens with exp - iat above this are rejected
+# verifier_public_key_path: keys/redhand_ed25519_public.pem   # or inject a verifier in code
+
+# --- Stage 2: micro-transaction probing loop ---
+micro_tx:
+  ceilings:                       # amount <= ceiling counts as a probe (~USD 5.00)
+    USD: "5.00"
+    INR: "450"
+    MYR: "25"
+    SGD: "7"
+  max_probes: 2                   # circuit breaker trips on the 2nd probe...
+  window_seconds: 60              # ...inside this sliding window
+
+# --- Stage 2: machine-speed enumeration bursts, keyed by (agent run, tool) ---
+velocity:
+  max_calls: 20
+  window_seconds: 1
+
+# --- Stage 3: merchant settlement & disbursement API abuse ---
+hitl:
+  thresholds:                     # HITL step-up required when amount is strictly above
+    USD: "10000"
+    INR: "900000"
+    MYR: "45000"
+    SGD: "13500"
+  protected_tools:
+    - settle_merchant
+    - initiate_disbursement
+    - bulk_payout
+
+# --- Stage 4: low-monitoring windows ---
+off_hours:
+  enabled: true
+  timezone: Asia/Kolkata
+  business_hours: [9, 18]         # local hours [start, end)
+  weekend_days: [5, 6]            # Saturday, Sunday
+  tighten_factor: 0.5             # halves probe/velocity limits and HITL thresholds
+  mandatory_hitl: true            # protected tools always need HITL off-hours
+  # Fixed-date Indian public holidays only. Movable festivals (Diwali, Holi, Eid, ...) and
+  # state/bank holidays differ every year: the OPERATOR must add them.
+  holidays:
+    - 2026-01-26                  # Republic Day
+    - 2026-08-15                  # Independence Day
+    - 2026-10-02                  # Gandhi Jayanti
+    - 2026-12-25                  # Christmas Day
+
+# --- Containment & evidence (CIAD-2026-0049: tamper-resistant logs, retain 180+ days) ---
+quarantine_on_block: true
+quarantine_journal_path: quarantine.jsonl   # replayed on startup so a crash does not free an agent
+audit_path: audit_trail.jsonl
+audit_fsync: false                # true = fsync every record (stricter durability, slower)
