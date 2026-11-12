@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# runtime artifacts and key material must never be committed
+audit_trail*.jsonl
+quarantine.jsonl
+keys/
+*.pem
