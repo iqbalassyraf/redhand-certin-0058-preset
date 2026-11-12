@@ -174,6 +174,10 @@ tests/                               121 tests: crypto negatives, detectors, aud
                                      all four stages, both modes, async, threads, latency, CLI
 ```
 
+## Roadmap
+
+See [UPGRADE.md](UPGRADE.md) for the phased roadmap and the checks that define "done" for each phase.
+
 ## Licence
 
 Apache License 2.0. See [LICENSE](LICENSE). Copyright ARCHTIFICIAL Sdn. Bhd.
