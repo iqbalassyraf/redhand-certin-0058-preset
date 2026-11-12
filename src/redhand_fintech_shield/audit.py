@@ -189,7 +189,7 @@ class HashChainedAuditLog:
         paths: str | Path | Sequence[str | Path], *, expected_tail_hash: str | None = None
     ) -> ChainVerificationReport:
         """Recompute every hash. ``paths`` may be several files, oldest first (after rotation)."""
-        files = [Path(paths)] if isinstance(paths, (str, Path)) else [Path(p) for p in paths]
+        files = [Path(paths)] if isinstance(paths, str | Path) else [Path(p) for p in paths]
         prev = GENESIS_HASH
         seq = 0
         checked = 0
