@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,8 @@ def test_keygen_creates_private_key_and_refuses_overwrite(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert main(["keygen", str(tmp_path / "k")]) == 0
-    assert (tmp_path / "k" / "redhand_ed25519_private.pem").stat().st_mode & 0o777 == 0o600
+    if sys.platform != "win32":
+        assert (tmp_path / "k" / "redhand_ed25519_private.pem").stat().st_mode & 0o777 == 0o600
     assert main(["keygen", str(tmp_path / "k")]) == 2
     assert "refusing to overwrite" in capsys.readouterr().err
 

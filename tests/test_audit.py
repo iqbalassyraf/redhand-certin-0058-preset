@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -200,6 +201,9 @@ def test_auto_rotation_by_size(tmp_path: Path) -> None:
     assert HashChainedAuditLog.verify_chain([*archives, path]).records_checked == 10
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="POSIX permissions (0o600) not supported on Windows"
+)
 def test_log_file_is_private(tmp_path: Path) -> None:
     path = tmp_path / "a.jsonl"
     write_log(path, 1)

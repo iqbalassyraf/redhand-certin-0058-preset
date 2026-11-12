@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import statistics
 import threading
 import time
@@ -514,5 +515,10 @@ def test_latency_budget_under_2ms(shield: Shield, make_ctx: MakeCtx, clock: Fake
 
     decision_p99 = statistics.quantiles(decision_us, n=100)[98] / 1000
     guarded_p99 = statistics.quantiles(guarded_ms, n=100)[98]
-    assert decision_p99 < 2.0, f"decision core p99 {decision_p99:.3f} ms"
-    assert guarded_p99 < 2.0, f"end-to-end p99 {guarded_p99:.3f} ms"
+    budget_ms = float(os.environ.get("REDHAND_LATENCY_BUDGET_MS", "2.0"))
+    assert decision_p99 < budget_ms, (
+        f"decision core p99 {decision_p99:.3f} ms (budget: {budget_ms:.1f} ms)"
+    )
+    assert guarded_p99 < budget_ms, (
+        f"end-to-end p99 {guarded_p99:.3f} ms (budget: {budget_ms:.1f} ms)"
+    )
