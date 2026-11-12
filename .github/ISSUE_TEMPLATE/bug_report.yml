@@ -1,0 +1,47 @@
+name: Bug report
+description: Create a report to help us improve redhand-certin-0058-preset
+title: "[BUG]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue!
+        **Security note:** If this is a security vulnerability, please do NOT use this form.
+        Report it privately via [GitHub Security Advisories](https://github.com/iqbalassyraf/redhand-certin-0058-preset/security/advisories).
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Minimal code example or step-by-step reproduction instructions.
+      placeholder: |
+        1. Set policy '...'
+        2. Call guarded tool with context '...'
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen under the deterministic rules.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, package version, uv version.
+      value: |
+        - OS: [e.g. Linux Debian 12 / macOS 14 / Windows 11]
+        - Python version: [e.g. 3.11.2]
+        - redhand-certin-0058-preset version: [e.g. 0.1.0]
+    validations:
+      required: true
