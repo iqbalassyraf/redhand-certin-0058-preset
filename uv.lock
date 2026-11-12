@@ -755,14 +755,19 @@ dependencies = [
     { name = "pydantic" },
     { name = "pyjwt" },
     { name = "pyyaml" },
-    { name = "rich" },
     { name = "tzdata", marker = "sys_platform == 'win32'" },
+]
+
+[package.optional-dependencies]
+demo = [
+    { name = "rich" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
     { name = "pytest" },
+    { name = "rich" },
     { name = "ruff" },
     { name = "types-pyyaml" },
 ]
@@ -773,14 +778,16 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.9.0" },
     { name = "pyjwt", specifier = ">=2.9.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },
-    { name = "rich", specifier = ">=13.9.0" },
+    { name = "rich", marker = "extra == 'demo'", specifier = ">=13.9.0" },
     { name = "tzdata", marker = "sys_platform == 'win32'" },
 ]
+provides-extras = ["demo"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=1.13" },
     { name = "pytest", specifier = ">=8.3" },
+    { name = "rich", specifier = ">=13.9.0" },
     { name = "ruff", specifier = ">=0.7" },
     { name = "types-pyyaml", specifier = ">=6.0" },
 ]

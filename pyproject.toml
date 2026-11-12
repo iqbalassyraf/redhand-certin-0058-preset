@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "Deterministic runtime interceptor preset for RedHand and standalone toolkit defending against CERT-In CIAD-2026-0058 (CRAFTY FALCON) and CIAD-2026-0049."
 readme = "README.md"
 requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [{ name = "ARCHTIFICIAL Sdn. Bhd." }]
 keywords = ["security", "ai-agents", "cert-in", "fintech", "zero-trust", "redhand"]
 classifiers = [
@@ -16,15 +18,18 @@ dependencies = [
     "pyyaml>=6.0.2",
     "cryptography>=43.0.0",
     "PyJWT>=2.9.0",
-    "rich>=13.9.0",
     "tzdata; sys_platform == 'win32'",
 ]
+
+[project.optional-dependencies]
+demo = ["rich>=13.9.0"]
 
 [project.scripts]
 redhand-certin-0058 = "redhand_fintech_shield.__main__:main"
 
 [dependency-groups]
 dev = [
+    "rich>=13.9.0",
     "pytest>=8.3",
     "ruff>=0.7",
     "mypy>=1.13",

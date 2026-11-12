@@ -17,6 +17,16 @@ hash-chained disk write) takes a median of 0.20 ms and p99 of 0.46 ms, against a
 Rare outliers (a single run saw ~2 ms) happen on garbage collection or disk stalls, so the
 guarantee is a p99, not a hard ceiling.
 
+## Install
+
+```bash
+pip install redhand-certin-0058-preset            # library + CLI, runtime deps only
+pip install "redhand-certin-0058-preset[demo]"    # adds rich, for the terminal simulation
+```
+
+Runtime dependencies are pydantic, PyYAML, cryptography, and PyJWT (plus tzdata on Windows).
+Nothing else is required, and the decision path makes no network calls.
+
 ## Run it in two minutes
 
 ```bash
@@ -163,3 +173,7 @@ examples/simulate_crafty_falcon.py   Rich TUI attack simulation
 tests/                               121 tests: crypto negatives, detectors, audit tamper cases,
                                      all four stages, both modes, async, threads, latency, CLI
 ```
+
+## Licence
+
+Apache License 2.0. See [LICENSE](LICENSE). Copyright ARCHTIFICIAL Sdn. Bhd.
