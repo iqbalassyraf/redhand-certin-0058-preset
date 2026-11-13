@@ -65,6 +65,14 @@ from .models import (
     TokenClaims,
     ToolCallContext,
 )
+from .protocols import (
+    AuditLogBackend,
+    Clock,
+    MonotonicClock,
+    NullTelemetrySink,
+    QuarantineBackend,
+    TelemetrySink,
+)
 
 _log = logging.getLogger(__name__)
 F = TypeVar("F", bound=Callable[..., Any])
@@ -96,16 +104,36 @@ class Shield:
         policy: PolicyConfig,
         verifier: AgentTokenVerifier | None = None,
         *,
-        audit: HashChainedAuditLog | None = None,
-        clock: Callable[[], datetime] = utcnow,
-        monotonic: Callable[[], float] = time.monotonic,
+        audit: AuditLogBackend | None = None,
+        audit_log: AuditLogBackend | None = None,
+        quarantine: QuarantineBackend | None = None,
+        quarantine_tracker: QuarantineBackend | None = None,
+        telemetry_sink: TelemetrySink | None = None,
+        clock: Clock | Callable[[], datetime] = utcnow,
+        monotonic: MonotonicClock | Callable[[], float] = time.monotonic,
     ) -> None:
         self.policy = policy
-        self._clock = clock
-        self._monotonic = monotonic
-        self._verifier = verifier or self._verifier_from_policy(policy, clock)
-        self.audit = audit or HashChainedAuditLog(policy.audit_path, fsync=policy.audit_fsync)
-        self.quarantine = QuarantineRegistry(policy.quarantine_journal_path)
+
+        if isinstance(clock, Clock):
+            self._clock: Callable[[], datetime] = clock.now
+        else:
+            self._clock = clock
+
+        if isinstance(monotonic, MonotonicClock):
+            self._monotonic: Callable[[], float] = monotonic.monotonic
+        else:
+            self._monotonic = monotonic
+
+        self._verifier = verifier or self._verifier_from_policy(policy, self._clock)
+        self.audit: Any = (
+            audit or audit_log or HashChainedAuditLog(policy.audit_path, fsync=policy.audit_fsync)
+        )
+        self.quarantine: Any = (
+            quarantine or quarantine_tracker or QuarantineRegistry(policy.quarantine_journal_path)
+        )
+        self.telemetry_sink: TelemetrySink = (
+            telemetry_sink if telemetry_sink is not None else NullTelemetrySink()
+        )
 
         self._off_hours = OffHoursEvaluator(policy)
         self._micro = MicroTxProbeDetector(policy.micro_tx)
@@ -113,6 +141,17 @@ class Shield:
         self._hitl = HighValueGate(policy.hitl)
         self._state_lock = threading.Lock()  # guards the sliding windows only
         self.audit_failures = 0
+        self.telemetry_failures = 0
+
+    @property
+    def audit_log(self) -> AuditLogBackend:
+        """Alias for ``self.audit`` conforming to protocol naming."""
+        return cast(AuditLogBackend, self.audit)
+
+    @property
+    def quarantine_tracker(self) -> QuarantineBackend:
+        """Alias for ``self.quarantine`` conforming to protocol naming."""
+        return cast(QuarantineBackend, self.quarantine)
 
     @staticmethod
     def _verifier_from_policy(
@@ -223,6 +262,12 @@ class Shield:
     ) -> Evaluation:
         enforced = self.policy.mode is Mode.ENFORCE
         findings = [self._to_finding(ctx, v, now_dt, enforced) for v in violations]
+        for f in findings:
+            try:
+                self.telemetry_sink.emit(f)
+            except Exception:
+                self.telemetry_failures += 1
+                _log.exception("telemetry sink emit failed for finding %s", f.finding_id)
         decision = Decision.ALLOW
         for f in findings:
             if f.decision is Decision.BLOCK:
@@ -285,7 +330,7 @@ class Shield:
             "tool_outcome": outcome,
         }
         try:
-            return self.audit.append(body)
+            return cast(AuditRecord, self.audit.append(body))
         except Exception:
             self.audit_failures += 1
             _log.exception("audit log write failed (decision %s)", evaluation.decision.value)

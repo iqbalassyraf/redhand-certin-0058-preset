@@ -371,3 +371,7 @@ class QuarantineRegistry:
     def snapshot(self) -> dict[str, str]:
         with self._lock:
             return dict(self._reasons)
+
+
+# Ergonomic alias conforming to protocol naming
+QuarantineTracker = QuarantineRegistry

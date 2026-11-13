@@ -253,3 +253,7 @@ class HashChainedAuditLog:
                 "tail hash differs from the externally anchored value (truncation or rewrite)",
             )
         return ChainVerificationReport(True, len(files), checked, prev, anchored)
+
+
+# Ergonomic alias conforming to protocol naming
+AuditLog = HashChainedAuditLog
