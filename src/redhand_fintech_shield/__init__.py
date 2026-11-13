@@ -20,6 +20,7 @@ from .exceptions import (
     ToolNotPinnedError,
     VelocityExceededError,
 )
+from .gateway import MCPGateway, ToolDefinition
 from .interceptor import Evaluation, Shield, redhand_guard
 from .models import (
     AuditRecord,
@@ -81,6 +82,7 @@ __all__ = [
     "HITLRequiredError",
     "HashChainedAuditLog",
     "M42Finding",
+    "MCPGateway",
     "MicroTxProbeError",
     "MissingContextError",
     "Mode",
@@ -98,6 +100,7 @@ __all__ = [
     "TokenInvalidError",
     "TokenPivotError",
     "ToolCallContext",
+    "ToolDefinition",
     "ToolExecutor",
     "ToolNotPinnedError",
     "VelocityExceededError",
