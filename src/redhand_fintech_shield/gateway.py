@@ -8,6 +8,7 @@ and tamper-evident audit logging for fintech tool execution.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import json
 import os
@@ -547,30 +548,36 @@ class MCPGateway:
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
         """Serve JSON-RPC requests over an async stream reader/writer until EOF."""
-        while True:
-            try:
-                msg_str = await self._read_message(reader)
-            except asyncio.IncompleteReadError:
-                break
-            except Exception as exc:
-                err = self._format_error(None, PARSE_ERROR, f"Stream read error: {exc}")
+        try:
+            while True:
                 try:
-                    writer.write((json.dumps(err) + "\n").encode("utf-8"))
-                    await writer.drain()
-                except Exception:
+                    msg_str = await self._read_message(reader)
+                except asyncio.IncompleteReadError:
                     break
-                continue
+                except Exception as exc:
+                    err = self._format_error(None, PARSE_ERROR, f"Stream read error: {exc}")
+                    try:
+                        writer.write((json.dumps(err) + "\n").encode("utf-8"))
+                        await writer.drain()
+                    except Exception:
+                        break
+                    continue
 
-            if msg_str is None:
-                break
-
-            resp = await self.handle_message(msg_str)
-            if resp is not None:
-                try:
-                    writer.write((json.dumps(resp, ensure_ascii=False) + "\n").encode("utf-8"))
-                    await writer.drain()
-                except Exception:
+                if msg_str is None:
                     break
+
+                resp = await self.handle_message(msg_str)
+                if resp is not None:
+                    try:
+                        writer.write((json.dumps(resp, ensure_ascii=False) + "\n").encode("utf-8"))
+                        await writer.drain()
+                    except Exception:
+                        break
+        finally:
+            if hasattr(writer, "close"):
+                writer.close()
+                with contextlib.suppress(Exception):
+                    await writer.wait_closed()
 
     async def serve_stdio(
         self,

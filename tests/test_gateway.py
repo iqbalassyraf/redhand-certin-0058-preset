@@ -132,6 +132,8 @@ async def run_gateway_server(gateway: MCPGateway) -> AsyncGenerator[GatewayClien
         client_writer.close()
         with contextlib.suppress(Exception):
             await client_writer.wait_closed()
+        if hasattr(server, "close_clients"):
+            server.close_clients()
         server.close()
         await server.wait_closed()
 
