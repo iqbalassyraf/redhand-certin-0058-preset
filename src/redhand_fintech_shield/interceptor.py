@@ -142,6 +142,7 @@ class Shield:
         self._state_lock = threading.Lock()  # guards the sliding windows only
         self.audit_failures = 0
         self.telemetry_failures = 0
+        self.quarantine_failures = 0
 
     @property
     def audit_log(self) -> AuditLogBackend:
@@ -260,27 +261,36 @@ class Shield:
     def _finish(
         self, ctx: ToolCallContext, violations: list[Violation], now_dt: datetime, t0: int
     ) -> Evaluation:
+        decision = Decision.ALLOW
+        for v in violations:
+            if v.decision is Decision.BLOCK:
+                decision = Decision.BLOCK
+                break
+            if v.decision is Decision.HITL_REQUIRED:
+                decision = Decision.HITL_REQUIRED
+
         enforced = self.policy.mode is Mode.ENFORCE
         findings = [self._to_finding(ctx, v, now_dt, enforced) for v in violations]
         for f in findings:
             try:
-                self.telemetry_sink.emit(f)
+                self.telemetry_sink.emit(f.model_copy())
             except Exception:
                 self.telemetry_failures += 1
                 _log.exception("telemetry sink emit failed for finding %s", f.finding_id)
-        decision = Decision.ALLOW
-        for f in findings:
-            if f.decision is Decision.BLOCK:
-                decision = Decision.BLOCK
-                break
-            if f.decision is Decision.HITL_REQUIRED:
-                decision = Decision.HITL_REQUIRED
 
         # Containment is recorded in BOTH modes (observe mode never consults it to block).
         if self.policy.quarantine_on_block:
             for v in violations:
                 if v.quarantine:
-                    self.quarantine.add(ctx.agent_run_id, f"{v.rule_id}: {v.detail}", now_dt)
+                    try:
+                        self.quarantine.add(ctx.agent_run_id, f"{v.rule_id}: {v.detail}", now_dt)
+                    except Exception:
+                        self.quarantine_failures += 1
+                        _log.exception(
+                            "quarantine journal write failed for agent_run_id %s (rule %s)",
+                            ctx.agent_run_id,
+                            v.rule_id,
+                        )
         return Evaluation(decision, findings, (time.perf_counter_ns() - t0) // 1000)
 
     @staticmethod

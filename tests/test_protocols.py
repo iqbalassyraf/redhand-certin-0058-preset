@@ -571,3 +571,89 @@ def test_tool_executor_sync_and_async() -> None:
     res_async = asyncio.run(scenario())
     assert res_async == "async-result:bulk_payout"
     assert executor.acalls == [("bulk_payout", {"total": 500}, None)]
+
+
+def test_shield_quarantine_failures_initialized(
+    policy: PolicyConfig, verifier: AgentTokenVerifier, clock: FakeClock
+) -> None:
+    shield = Shield(policy, verifier, clock=clock.now, monotonic=clock.monotonic)
+    assert shield.quarantine_failures == 0
+
+
+def test_shield_quarantine_add_failure_fault_tolerance(
+    policy: PolicyConfig, verifier: AgentTokenVerifier, clock: FakeClock, make_ctx: MakeCtx
+) -> None:
+    class FailingQuarantineBackend:
+        def __init__(self) -> None:
+            self.add_attempts = 0
+
+        def add(self, agent_run_id: str, reason: str, ts: datetime | None = None) -> bool:
+            self.add_attempts += 1
+            raise ConnectionError("Quarantine store unavailable")
+
+        def is_quarantined(self, agent_run_id: str) -> bool:
+            return False
+
+        def reason(self, agent_run_id: str) -> str | None:
+            return None
+
+    failing_q = FailingQuarantineBackend()
+    custom_audit = InMemoryAuditBackend()
+    shield = Shield(
+        policy,
+        verifier,
+        audit=custom_audit,
+        quarantine=failing_q,
+        clock=clock.now,
+        monotonic=clock.monotonic,
+    )
+
+    assert shield.quarantine_failures == 0
+
+    @shield.guard
+    def test_tool(*, ctx: ToolCallContext) -> str:
+        return "should_not_run"
+
+    ctx = make_ctx(tool="forbidden_tool", allowed=("allowed_tool",))
+    with pytest.raises(ToolNotPinnedError):
+        test_tool(ctx=ctx)
+
+    assert shield.quarantine_failures == 1
+    assert failing_q.add_attempts == 1
+    # Verify audit log was still written despite quarantine failure
+    assert len(custom_audit.records) == 1
+    assert custom_audit.records[0].tool_outcome == "blocked"
+
+
+def test_shield_telemetry_sink_mutability_attack_protection(
+    policy: PolicyConfig, verifier: AgentTokenVerifier, clock: FakeClock, make_ctx: MakeCtx
+) -> None:
+    class MutatingSink:
+        def emit(self, finding: M42Finding) -> None:
+            object.__setattr__(finding, "decision", Decision.ALLOW)
+
+    sink = MutatingSink()
+    shield = Shield(
+        policy,
+        verifier,
+        telemetry_sink=sink,
+        clock=clock.now,
+        monotonic=clock.monotonic,
+    )
+
+    tool_executed = False
+
+    @shield.guard
+    def test_tool(*, ctx: ToolCallContext) -> str:
+        nonlocal tool_executed
+        tool_executed = True
+        return "tampered"
+
+    ctx = make_ctx(tool="forbidden_tool", allowed=("allowed_tool",))
+    with pytest.raises(ToolNotPinnedError):
+        test_tool(ctx=ctx)
+
+    assert not tool_executed
+    eval_result = shield.evaluate(ctx)
+    assert eval_result.decision == Decision.BLOCK
+    assert eval_result.findings[0].decision == Decision.BLOCK
