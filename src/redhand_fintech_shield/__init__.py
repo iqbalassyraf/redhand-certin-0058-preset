@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .audit import ChainVerificationReport, HashChainedAuditLog
+from .audit import AuditLog, ChainVerificationReport, HashChainedAuditLog
 from .crypto import AgentTokenIssuer, AgentTokenVerifier
+from .detectors import QuarantineRegistry, QuarantineTracker
 from .exceptions import (
     AgentQuarantinedError,
     AuditChainError,
@@ -29,6 +30,15 @@ from .models import (
     PolicyConfig,
     TokenClaims,
     ToolCallContext,
+)
+from .protocols import (
+    AuditLogBackend,
+    Clock,
+    MonotonicClock,
+    NullTelemetrySink,
+    QuarantineBackend,
+    TelemetrySink,
+    ToolExecutor,
 )
 
 __version__ = "0.1.0"
@@ -60,8 +70,11 @@ __all__ = [
     "AgentTokenIssuer",
     "AgentTokenVerifier",
     "AuditChainError",
+    "AuditLog",
+    "AuditLogBackend",
     "AuditRecord",
     "ChainVerificationReport",
+    "Clock",
     "Decision",
     "Env",
     "Evaluation",
@@ -71,14 +84,21 @@ __all__ = [
     "MicroTxProbeError",
     "MissingContextError",
     "Mode",
+    "MonotonicClock",
+    "NullTelemetrySink",
     "PolicyConfig",
     "PolicyLoadError",
+    "QuarantineBackend",
+    "QuarantineRegistry",
+    "QuarantineTracker",
     "Shield",
     "ShieldError",
+    "TelemetrySink",
     "TokenClaims",
     "TokenInvalidError",
     "TokenPivotError",
     "ToolCallContext",
+    "ToolExecutor",
     "ToolNotPinnedError",
     "VelocityExceededError",
     "__version__",
