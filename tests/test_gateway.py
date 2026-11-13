@@ -1055,7 +1055,13 @@ def test_subprocess_stdio_out_of_process_execution(tmp_path: Path) -> None:
 
         # Close stdin to trigger EOF and clean exit
         proc.stdin.close()
-        await proc.wait()
+        with contextlib.suppress(Exception):
+            await proc.stdin.wait_closed()
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+        except TimeoutError:
+            proc.kill()
+            await proc.wait()
         assert proc.returncode == 0
 
     asyncio.run(scenario())
