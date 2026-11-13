@@ -592,8 +592,8 @@ class MCPGateway:
             )
             w = asyncio.StreamWriter(w_transport, w_protocol, r, loop)
             await self.serve_streams(r, w)
-        except (OSError, ValueError):
-            # Fallback for regular files or non-pipe descriptor inputs
+        except (OSError, ValueError, AttributeError, NotImplementedError):
+            # Fallback for regular files, Windows, or non-pipe descriptor inputs
             await self._serve_stdio_fallback()
 
     async def _serve_stdio_fallback(self) -> None:

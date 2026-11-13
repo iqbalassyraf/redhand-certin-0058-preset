@@ -7,6 +7,7 @@ import contextlib
 import gc
 import json
 import statistics
+import sys
 import time
 import types
 from collections.abc import AsyncGenerator
@@ -1024,7 +1025,7 @@ def test_subprocess_stdio_out_of_process_execution(tmp_path: Path) -> None:
         journal_file = tmp_path / "subp_journal.jsonl"
 
         proc = await asyncio.create_subprocess_exec(
-            "python3",
+            sys.executable,
             "-m",
             "redhand_fintech_shield",
             "gateway",
@@ -1503,6 +1504,10 @@ def test_serve_streams_incomplete_read_and_writer_error(shield: Shield) -> None:
     asyncio.run(scenario())
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="connect_read_pipe not used on Windows ProactorEventLoop",
+)
 def test_serve_stdio_connect_pipe_coverage(shield: Shield, monkeypatch: pytest.MonkeyPatch) -> None:
     gateway = MCPGateway(shield=shield)
 
