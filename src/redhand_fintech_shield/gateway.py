@@ -582,6 +582,10 @@ class MCPGateway:
             await self.serve_streams(reader, writer)
             return
 
+        if sys.platform == "win32" or not hasattr(sys.stdin, "fileno"):
+            await self._serve_stdio_fallback()
+            return
+
         loop = asyncio.get_running_loop()
         try:
             r = asyncio.StreamReader()

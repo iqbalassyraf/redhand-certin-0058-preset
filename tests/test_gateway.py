@@ -1513,6 +1513,7 @@ def test_serve_stdio_connect_pipe_coverage(shield: Shield, monkeypatch: pytest.M
 
     async def scenario() -> None:
         loop = asyncio.get_running_loop()
+        monkeypatch.setattr(sys.stdin, "fileno", lambda: 0, raising=False)
 
         async def fake_connect_read_pipe(protocol_factory: Any, pipe: Any) -> tuple[Any, Any]:
             protocol = protocol_factory()
