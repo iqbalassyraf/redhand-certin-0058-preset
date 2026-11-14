@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from . import adapters
 from .audit import AuditLog, ChainVerificationReport, HashChainedAuditLog
 from .crypto import AgentTokenIssuer, AgentTokenVerifier
 from .detectors import QuarantineRegistry, QuarantineTracker
@@ -105,6 +106,7 @@ __all__ = [
     "ToolNotPinnedError",
     "VelocityExceededError",
     "__version__",
+    "adapters",
     "default_preset_path",
     "load_policy",
     "redhand_guard",
