@@ -26,6 +26,7 @@ demo = ["rich>=13.9.0"]
 
 [project.scripts]
 redhand-certin-0058 = "redhand_fintech_shield.__main__:main"
+redhand-shield = "redhand_fintech_shield.__main__:main"
 
 [dependency-groups]
 dev = [
@@ -70,7 +71,7 @@ exclude_lines = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["src", "tests", "examples"]
+src = ["src", "tests", "examples", "benchmarks"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "S", "C4", "RUF"]
@@ -84,7 +85,7 @@ ignore = ["S101"]
 python_version = "3.11"
 strict = true
 plugins = ["pydantic.mypy"]
-files = ["src", "tests", "examples"]
+files = ["src", "tests", "examples", "benchmarks"]
 
 [tool.pydantic-mypy]
 init_forbid_extra = true

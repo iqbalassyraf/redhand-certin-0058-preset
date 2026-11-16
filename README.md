@@ -11,11 +11,13 @@ It is two things in one package:
    tokens, sliding-window detectors, a quarantine registry and a hash-chained audit log, with a
    runnable attack simulation. No LLM is in the decision path; no network calls are made.
 
-Measured on this repo's benchmark (5,000 calls, one core): the decision core takes a median of
-0.16 ms and p99 of 0.35 ms; a full guarded call (token verification, detectors, the tool, and a
-hash-chained disk write) takes a median of 0.20 ms and p99 of 0.46 ms, against a 2 ms budget.
-Rare outliers (a single run saw ~2 ms) happen on garbage collection or disk stalls, so the
-guarantee is a p99, not a hard ceiling.
+Measured on this repo's benchmark (`benchmarks/bench_latency.py`, 1,000 calls, Python 3.12):
+the decision core takes a median (p50) of **0.15 ms** and p99 of **0.24 ms**; a full in-process
+guarded call (token verification, detectors, tool, and hash-chained disk write) takes a p50 of
+**0.20 ms** and p99 of **0.27 ms** (against a 2.0 ms budget); and an out-of-process MCP Gateway
+`tools/call` roundtrip over loopback JSON-RPC takes a p50 of **0.37 ms** and p99 of **0.54 ms**
+(against a 5.0 ms SLA). Rare outliers happen on garbage collection or disk stalls, so the guarantee
+is a p99, not a hard ceiling.
 
 ## Install
 
@@ -119,6 +121,172 @@ Monetary values are quoted strings (YAML floats are refused). Unknown or missing
 fail **closed**: they count as probe candidates and as above the HITL threshold.
 `python -m redhand_fintech_shield show-policy` prints the effective policy.
 
+## MCP Gateway & Docker Quickstart
+
+Run the shield out-of-process as a stdio Model Context Protocol (MCP) gateway so the agent never
+holds a direct reference to raw tool implementations:
+
+```bash
+# Generate an Ed25519 keypair for token signing and verification
+redhand-shield keygen --out-dir keys
+
+# Start the out-of-process MCP gateway over stdio
+redhand-shield gateway \
+  --public-key keys/redhand_ed25519_public.pem \
+  --target-env prod \
+  --mode enforce
+```
+
+### Docker Container Quickstart
+
+Build and run the hardened multi-stage container (runs as unprivileged user `redhand` UID `10001`
+with `/app/data` for audit and quarantine journals):
+
+```bash
+docker build -t redhand-shield .
+
+docker run --rm -i \
+  -v "$(pwd)/keys:/app/keys:ro" \
+  -v "$(pwd)/data:/app/data" \
+  redhand-shield gateway \
+  --public-key /app/keys/redhand_ed25519_public.pem \
+  --audit-path /app/data/audit_trail.jsonl \
+  --quarantine-journal /app/data/quarantine.jsonl \
+  --target-env prod \
+  --mode enforce
+```
+
+Example generic MCP client configuration (`mcp_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "redhand-fintech-shield": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "-v", "/abs/path/to/keys:/app/keys:ro",
+        "-v", "/abs/path/to/data:/app/data",
+        "redhand-shield",
+        "gateway",
+        "--public-key", "/app/keys/redhand_ed25519_public.pem",
+        "--audit-path", "/app/data/audit_trail.jsonl",
+        "--quarantine-journal", "/app/data/quarantine.jsonl"
+      ]
+    }
+  }
+}
+```
+
+## Multi-Cloud & Framework Adapters
+
+All adapters use structural typing with zero heavy SDK lock-in in the core package. Assuming
+`shield` and `token` are initialized as shown above:
+
+### AWS Bedrock Converse
+
+```python
+from redhand_fintech_shield.adapters import BedrockConverseAdapter
+
+adapter = BedrockConverseAdapter(shield, {"charge_card": charge_card})
+tool_result = adapter.handle_tool_use_block(
+    {
+        "toolUse": {
+            "toolUseId": "tooluse_01",
+            "name": "charge_card",
+            "input": {"amount": "100.00", "currency": "USD", "token": token, "target_env": "prod"},
+        }
+    }
+)
+```
+
+### Microsoft Azure OpenAI
+
+```python
+from redhand_fintech_shield.adapters import AzureOpenAIAdapter
+
+adapter = AzureOpenAIAdapter(shield, {"charge_card": charge_card})
+tool_msg = adapter.handle_tool_call(
+    {
+        "id": "call_01",
+        "type": "function",
+        "function": {
+            "name": "charge_card",
+            "arguments": {
+                "amount": "100.00",
+                "currency": "USD",
+                "token": token,
+                "target_env": "prod",
+            },
+        },
+    }
+)
+```
+
+### Google Cloud Vertex AI / GenAI
+
+```python
+from redhand_fintech_shield.adapters import GoogleGenAIAdapter
+
+adapter = GoogleGenAIAdapter(shield, {"charge_card": charge_card})
+fn_resp = adapter.handle_function_call(
+    {
+        "function_call": {
+            "name": "charge_card",
+            "args": {"amount": "100.00", "currency": "USD", "token": token, "target_env": "prod"},
+            "id": "call_01",
+        }
+    }
+)
+```
+
+### LangChain / LangGraph
+
+```python
+from redhand_fintech_shield.adapters import RedHandGuardedTool
+
+guarded_tool = RedHandGuardedTool(my_langchain_tool, shield)
+result = guarded_tool.run(amount="100.00", currency="USD", token=token, target_env="prod")
+# Async: result = await guarded_tool.arun(amount="100.00", currency="USD", token=token, target_env="prod")
+```
+
+### Generic Agent Loop
+
+```python
+from redhand_fintech_shield.adapters import GenericToolRunner
+
+runner = GenericToolRunner(shield, {"charge_card": charge_card})
+result = runner.run(
+    "charge_card",
+    {"amount": "100.00", "currency": "USD", "token": token, "target_env": "prod"},
+)
+```
+
+## Performance & Benchmarks
+
+Reproduce on your host with:
+
+```bash
+uv run python benchmarks/bench_latency.py --iterations 1000
+```
+
+Measured on Linux (Python 3.12.16, `iterations=1000`, `warmup=100`, `Mode.ENFORCE` with JSONL
+audit logging):
+
+| Component / Path | p50 (ms) | p95 (ms) | p99 (ms) | Budget / SLA |
+|---|---:|---:|---:|---|
+| Decision Core (`Shield.evaluate`) | 0.1543 | 0.1778 | 0.2389 | < 2.0 ms |
+| In-Process Guarded Call (`@redhand_guard`) | 0.1986 | 0.2251 | 0.2699 | < 2.0 ms |
+| Out-of-Process MCP Gateway (loopback JSON-RPC) | 0.3690 | 0.4342 | 0.5400 | < 5.0 ms |
+| AWS Bedrock Converse (`BedrockConverseAdapter`) | 0.2139 | 0.2476 | 0.2792 | < 2.0 ms |
+| Azure OpenAI (`AzureOpenAIAdapter`) | 0.2172 | 0.2481 | 0.2770 | < 2.0 ms |
+| Google GenAI (`GoogleGenAIAdapter`) | 0.2150 | 0.2483 | 0.2828 | < 2.0 ms |
+| LangChain Sync (`RedHandGuardedTool.run`) | 0.2125 | 0.2460 | 0.3005 | < 2.0 ms |
+| LangChain Async (`RedHandGuardedTool.arun`) | 0.2151 | 0.2496 | 0.3002 | < 2.0 ms |
+
+Net MCP Gateway proxy overhead over a raw async no-op tool (`0.0002 ms` p50): **0.37 ms** (p50),
+**0.43 ms** (p95), and **0.54 ms** (p99).
+
 ## Specification
 
 **Token** (compact JWS, `alg=EdDSA`, algorithm pinned on verify so `none`/HMAC confusion fails):
@@ -140,10 +308,11 @@ Raw tokens are never logged, only `sha256:<digest>`. After `rotate()` the new fi
 
 ## Limits you should know before deploying
 
-- **In-process gate.** It protects only tools wrapped with `@redhand_guard`, and only as well
-  as the agent is prevented from reaching the raw tool functions. CIAD-2026-0049 asks for
-  enforcement outside the model; this is an execution-layer control and should sit alongside
-  network egress controls, not replace them.
+- **In-process gate vs. out-of-process gateway.** `@redhand_guard` and in-process adapters
+  protect only wrapped tools, and only as well as the agent is prevented from reaching raw tool
+  functions. For out-of-process isolation where the agent holds no direct reference to raw tools,
+  run `MCPGateway` (`redhand-shield gateway`) inside the provided Docker container alongside
+  network egress controls.
 - **The first probe passes.** A single `$0.50` payment is indistinguishable from a legitimate
   one; the breaker trips on the second, as the advisory specifies.
 - **Tamper-evident, not tamper-proof.** Someone who can rewrite the whole file can forge a
@@ -168,10 +337,13 @@ Raw tokens are never logged, only `sha256:<digest>`. After `rotate()` the new fi
 
 ```
 presets/certin_ciad_2026_0058.yaml   declarative policy
-src/redhand_fintech_shield/          models, crypto, detectors, audit, interceptor, exceptions, CLI
+src/redhand_fintech_shield/          models, crypto, detectors, audit, interceptor, protocols,
+                                     gateway, adapters/, exceptions, CLI
+benchmarks/bench_latency.py          reproducible latency benchmark suite (core, gateway, adapters)
+Dockerfile                           multi-stage production container (non-root UID 10001)
 examples/simulate_crafty_falcon.py   Rich TUI attack simulation
-tests/                               121 tests: crypto negatives, detectors, audit tamper cases,
-                                     all four stages, both modes, async, threads, latency, CLI
+tests/                               253 tests: crypto negatives, detectors, audit tamper cases,
+                                     all four stages, both modes, gateway, adapters, benchmarks, CLI
 ```
 
 ## Roadmap
