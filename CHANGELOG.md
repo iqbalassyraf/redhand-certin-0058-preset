@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Issue and pull request templates (`.github/ISSUE_TEMPLATE/`, `.github/PULL_REQUEST_TEMPLATE.md`).
 - Pre-commit configuration (`.pre-commit-config.yaml`) with pinned hooks for `ruff`, `ruff-format`, and `mypy`.
 - Authoritative project roadmap documented in `UPGRADE.md`.
+- Extensibility protocols (`PolicyEvaluator`, `TokenVerifier`, `AuditLogger`, `QuarantineStore`, `TelemetrySink`, `ToolExecutor`, `Clock`, `MonotonicClock`) in `src/redhand_fintech_shield/protocols.py` (Phase 2 M1).
+- Out-of-process Model Context Protocol (MCP) Gateway (`MCPGateway`) with `stdio`/stream JSON-RPC transport and `redhand-shield gateway` CLI subcommand (Phase 2 M2).
+- `redhand-shield` CLI script entrypoint alias alongside `redhand-certin-0058`.
+- Zero-vendor-lock-in platform and framework adapters in `src/redhand_fintech_shield/adapters/`: `BedrockConverseAdapter`, `AzureOpenAIAdapter`, `RedHandSemanticKernelFilter`, `GoogleGenAIAdapter`, `RedHandGuardedTool`, `guard_langchain_tool`, and `GenericToolRunner` (Phase 2 M3).
+- Production multi-stage `Dockerfile` (`python:3.12-slim-bookworm`, unprivileged `redhand` UID `10001`, `/app/data`) and `.dockerignore` (Phase 2 M4).
+- Automated latency benchmark suite (`benchmarks/bench_latency.py`) covering Decision Core, In-Process Guarded Call, MCP Gateway loopback, and Multi-Cloud Adapters, plus cross-platform smoke test (`tests/test_benchmark.py`) (Phase 2 M4).
+- Updated `README.md` with MCP Gateway & Docker quickstart, multi-cloud adapter snippets, and empirical latency benchmark table; marked Phase 2 complete in `UPGRADE.md` (Phase 2 M4).
 
 ## [0.1.0] - 2026-11-12
 

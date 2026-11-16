@@ -19,16 +19,21 @@ benchmark harness so anyone can reproduce them.
   are expected to live in separate packages built on tagged releases of this one.
 - **No platform code in the core.** The core exposes interfaces. Platform adapters live elsewhere.
 
-## Where we are (v0.1.0 work)
+## Where we are (Phase 1 & Phase 2 complete)
 
 In-process decorator, Ed25519 per-run tokens, sliding-window detectors, HITL gate, off-hours
 tightening, journaled quarantine, hash-chained audit log with rotation and an offline verifier,
-a CLI, a terminal attack simulation, and 121 tests. Measured on one core: a full guarded call has
-a p50 of 0.20 ms and a p99 of 0.46 ms (rare outliers near 2 ms).
+extensibility protocols (`protocols.py`), out-of-process MCP Gateway (`MCPGateway` + `redhand-shield gateway`),
+multi-cloud and framework adapters (`BedrockConverseAdapter`, `AzureOpenAIAdapter`,
+`RedHandSemanticKernelFilter`, `GoogleGenAIAdapter`, `RedHandGuardedTool`, `GenericToolRunner`),
+production multi-stage `Dockerfile`, automated latency benchmark suite (`benchmarks/bench_latency.py`),
+a CLI, a terminal attack simulation, and 253 tests. Measured via `benchmarks/bench_latency.py`:
+a full in-process guarded call has a p50 of 0.20 ms and p99 of 0.27 ms, and an out-of-process
+MCP Gateway `tools/call` roundtrip has a p50 of 0.37 ms and p99 of 0.54 ms.
 
-Known limits this roadmap exists to address: the guard runs inside the agent's process; state is
-per process; step-up approval is a run-wide flag rather than per transaction; the audit log is
-tamper-evident but not tamper-proof; tool pinning covers names, not tool code.
+Known limits this roadmap exists to address: state is per process; step-up approval is a
+run-wide flag rather than per transaction; the audit log is tamper-evident but not tamper-proof;
+tool pinning covers names, not tool code.
 
 ## Phase 1: Foundations (no behaviour changes)
 
@@ -53,14 +58,22 @@ The coverage floor is set at the level measured at the start of the phase and on
 
 Meet agents where they run, and enforce outside the agent's process.
 
-- **MCP gateway:** a proxy between an MCP client and its tool servers that applies the shield to
-  every tool call, with no changes to agent code.
-- **Adapters:** LangChain/LangGraph, the OpenAI Agents SDK, and a generic tool-use loop.
-- **Docker image** for the gateway and a quickstart rewritten around it.
+- [x] **MCP gateway:** a proxy (`MCPGateway`) between an MCP client and its tool servers that
+  applies the shield to every tool call over JSON-RPC stdio/streams, with no changes to agent code.
+- [x] **Adapters:** Zero-vendor-lock-in structural-typing adapters for AWS Bedrock Converse
+  (`BedrockConverseAdapter`), Microsoft Azure OpenAI & Semantic Kernel (`AzureOpenAIAdapter`,
+  `RedHandSemanticKernelFilter`), Google Cloud Vertex AI / GenAI (`GoogleGenAIAdapter`),
+  LangChain / LangGraph (`RedHandGuardedTool`, `guard_langchain_tool`), and a generic tool-use
+  loop (`GenericToolRunner`).
+- [x] **Docker image** (`Dockerfile` multi-stage build, non-root `redhand` UID `10001`, `/app/data`)
+  and `README.md` quickstart rewritten around the gateway, adapters, and published benchmarks.
 
 **Done when:** an unmodified MCP client is protected end to end in the demo; the staging-to-prod
 pivot and micro-probe scenarios are blocked at the gateway with the agent holding no reference to
 the raw tool; the added latency is measured and its p99 is published next to the in-process figure.
+**Status: Complete** — verified with `tests/test_gateway.py`, `tests/test_adapters.py`,
+`tests/test_benchmark.py`, and `benchmarks/bench_latency.py` (in-process p99: 0.27 ms;
+MCP Gateway loopback p99: 0.54 ms; 253 tests passing at >= 97% coverage).
 
 ## Phase 3: Detection depth
 
