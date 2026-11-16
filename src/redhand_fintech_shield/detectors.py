@@ -24,8 +24,11 @@ from .models import (
     Decision,
     HITLPolicy,
     MicroTxPolicy,
+    NewBeneficiaryPolicy,
     OffHoursPolicy,
     PolicyConfig,
+    SequencePolicy,
+    StructuringPolicy,
     TokenClaims,
     VelocityPolicy,
 )
@@ -38,8 +41,11 @@ R_TOKEN_INVALID = "CIAD-2026-0058.R1.token_invalid"  # noqa: S105 - rule id, not
 R_ENV_PIVOT = "CIAD-2026-0058.R1.staging_to_prod_pivot"
 R_MICRO_TX = "CIAD-2026-0058.R2.micro_tx_probe"
 R_VELOCITY = "CIAD-2026-0058.R2.velocity_burst"
+R_STRUCTURING = "CIAD-2026-0058.R2.structuring"
+R_SEQUENCE = "CIAD-2026-0058.R2.recon_to_payment_sequence"
 R_TOOL_NOT_PINNED = "CIAD-2026-0058.R3.tool_not_pinned"
 R_HITL = "CIAD-2026-0058.R3.hitl_required"
+R_NEW_BENEFICIARY = "CIAD-2026-0058.R3.new_beneficiary_high_value"
 R_OFF_HOURS_HITL = "CIAD-2026-0058.R4.off_hours_hitl_required"
 R_OFF_HOURS = "CIAD-2026-0058.R4.off_hours_tightened"
 
@@ -72,6 +78,8 @@ class EffectivePolicy:
     max_velocity_calls: int
     hitl_thresholds: dict[str, Decimal]
     mandatory_hitl: bool
+    structuring_thresholds: dict[str, Decimal]
+    new_beneficiary_thresholds: dict[str, Decimal]
 
 
 class OffHoursEvaluator:
@@ -87,6 +95,8 @@ class OffHoursEvaluator:
             max_velocity_calls=policy.velocity.max_calls,
             hitl_thresholds=dict(policy.hitl.thresholds),
             mandatory_hitl=False,
+            structuring_thresholds=dict(policy.structuring.thresholds),
+            new_beneficiary_thresholds=dict(policy.new_beneficiary.thresholds),
         )
         self._tight = EffectivePolicy(
             off_hours_reason="",  # filled per call
@@ -96,6 +106,12 @@ class OffHoursEvaluator:
             ),
             hitl_thresholds={k: v * factor for k, v in policy.hitl.thresholds.items()},
             mandatory_hitl=self._p.mandatory_hitl,
+            structuring_thresholds={
+                k: v * factor for k, v in policy.structuring.thresholds.items()
+            },
+            new_beneficiary_thresholds={
+                k: v * factor for k, v in policy.new_beneficiary.thresholds.items()
+            },
         )
 
     def reason(self, now: datetime) -> str | None:
@@ -122,7 +138,13 @@ class OffHoursEvaluator:
             return self._normal
         t = self._tight
         return EffectivePolicy(
-            why, t.max_probes, t.max_velocity_calls, t.hitl_thresholds, t.mandatory_hitl
+            why,
+            t.max_probes,
+            t.max_velocity_calls,
+            t.hitl_thresholds,
+            t.mandatory_hitl,
+            t.structuring_thresholds,
+            t.new_beneficiary_thresholds,
         )
 
 
@@ -147,6 +169,14 @@ class SlidingWindowCounter:
         while stamps and stamps[0] <= cutoff:
             stamps.popleft()
         stamps.append(now)
+        return len(stamps)
+
+    def count(self, now: float) -> int:
+        """Return how many events are in the trailing window without recording a new event."""
+        stamps = self._stamps
+        cutoff = now - self._window
+        while stamps and stamps[0] <= cutoff:
+            stamps.popleft()
         return len(stamps)
 
     def newest(self) -> float | None:
@@ -183,6 +213,16 @@ class KeyedSlidingWindow:
         if self._ops % self._sweep_every == 0:
             self._sweep(now)
         return count
+
+    def count(self, key: Hashable, now: float) -> int:
+        """Return the active count for ``key`` at ``now`` without recording a new event."""
+        counter = self._counters.get(key)
+        if counter is None:
+            return 0
+        n = counter.count(now)
+        if n == 0:
+            del self._counters[key]
+        return n
 
     def _sweep(self, now: float) -> None:
         """Bounded rotating sweep: examine a few keys, drop idle ones, rotate survivors."""
@@ -315,6 +355,227 @@ class HighValueGate:
         if claims is not None and claims.hitl_step_up:
             return None
         return Violation(rule, "high", stage, Decision.HITL_REQUIRED, f"{tool_name!r}: {reason}")
+
+
+class _WindowSum:
+    """Bounded O(1)-amortized sliding-window sum of Decimal amounts."""
+
+    __slots__ = ("_entries", "_maxlen", "_total", "_window")
+
+    def __init__(self, window_seconds: float, maxlen: int) -> None:
+        self._window = window_seconds
+        self._maxlen = maxlen
+        self._entries: deque[tuple[float, Decimal]] = deque()
+        self._total = Decimal("0")
+
+    def add(self, now: float, amount: Decimal) -> tuple[int, Decimal, bool]:
+        entries = self._entries
+        cutoff = now - self._window
+        total = self._total
+        while entries and entries[0][0] <= cutoff:
+            _, old = entries.popleft()
+            total -= old
+        saturated = len(entries) >= self._maxlen
+        if saturated:
+            _, dropped = entries.popleft()
+            total -= dropped
+        entries.append((now, amount))
+        total += amount
+        self._total = total
+        return len(entries), total, saturated
+
+    def newest(self) -> float | None:
+        return self._entries[-1][0] if self._entries else None
+
+
+class StructuringDetector:
+    """Stage 2: split-transaction structuring (smurfing) per (agent run, currency)."""
+
+    def __init__(
+        self,
+        policy: StructuringPolicy,
+        *,
+        max_entries: int = 16384,
+        sweep_every: int = 256,
+        sweep_batch: int = 256,
+    ) -> None:
+        self._p = policy
+        self._max_entries = max_entries
+        self._sweep_every = sweep_every
+        self._sweep_batch = sweep_batch
+        self._windows: dict[tuple[str, str], _WindowSum] = {}
+        self._ops = 0
+
+    def observe(
+        self,
+        agent_run_id: str,
+        tool_name: str,
+        amount: Decimal | None,
+        currency: str | None,
+        now: float,
+        effective: EffectivePolicy,
+        claims: TokenClaims | None = None,
+    ) -> Violation | None:
+        del claims  # Structuring is never bypassed by run-wide hitl_step_up.
+        if not self._p.enabled or amount is None:
+            return None
+        if self._p.protected_tools and tool_name not in self._p.protected_tools:
+            return None
+
+        key = (agent_run_id, currency or "")
+        win = self._windows.get(key)
+        if win is None:
+            win = self._windows[key] = _WindowSum(self._p.window_seconds, self._max_entries)
+        count, total, saturated = win.add(now, amount)
+        self._ops += 1
+        if self._ops % self._sweep_every == 0:
+            self._sweep(now)
+
+        if saturated:
+            return Violation(
+                R_STRUCTURING,
+                "critical",
+                2,
+                Decision.BLOCK,
+                f"structuring window reached capacity ({self._max_entries} entries) within "
+                f"{self._p.window_seconds:g}s (fail-closed)",
+                quarantine=True,
+            )
+
+        if count < self._p.min_tx_count:
+            return None
+
+        threshold = effective.structuring_thresholds.get(currency) if currency else None
+        if threshold is None:
+            return Violation(
+                R_STRUCTURING,
+                "critical",
+                2,
+                Decision.BLOCK,
+                f"{count} transactions totaling {total} {currency or 'MISSING'} within "
+                f"{self._p.window_seconds:g}s; currency {currency or 'MISSING'!r} has no "
+                "configured structuring threshold (fail-closed)",
+                quarantine=True,
+            )
+
+        if total > threshold:
+            tightened = (
+                f" [tightened for {effective.off_hours_reason}]"
+                if effective.off_hours_reason
+                else ""
+            )
+            return Violation(
+                R_STRUCTURING,
+                "critical",
+                2,
+                Decision.BLOCK,
+                f"{count} transactions totaling {total} {currency} within "
+                f"{self._p.window_seconds:g}s exceeds structuring threshold "
+                f"{threshold}{tightened}",
+                quarantine=True,
+            )
+        return None
+
+    def _sweep(self, now: float) -> None:
+        cutoff = now - self._p.window_seconds
+        for key in list(islice(self._windows, self._sweep_batch)):
+            win = self._windows[key]
+            newest = win.newest()
+            if newest is None or newest <= cutoff:
+                del self._windows[key]
+            else:
+                self._windows[key] = self._windows.pop(key)
+
+
+class NewBeneficiaryDetector:
+    """Stage 3: high-value disbursement to an unseen/untrusted beneficiary. Stateless."""
+
+    def __init__(
+        self,
+        policy: NewBeneficiaryPolicy,
+        protected_tools: frozenset[str] | None = None,
+    ) -> None:
+        self._p = policy
+        self._protected_tools = protected_tools
+
+    def evaluate(
+        self,
+        tool_name: str,
+        beneficiary: str | None,
+        amount: Decimal | None,
+        currency: str | None,
+        claims: TokenClaims | None,
+        effective: EffectivePolicy,
+    ) -> Violation | None:
+        if not self._p.enabled or beneficiary is None:
+            return None
+        if self._protected_tools is not None and tool_name not in self._protected_tools:
+            return None
+        if beneficiary in self._p.known_beneficiaries:
+            return None
+        if self._p.action == "hitl_required" and claims is not None and claims.hitl_step_up:
+            return None
+
+        base = self._p.thresholds.get(currency) if currency else None
+        if effective.off_hours_reason is not None and currency and base is not None:
+            threshold: Decimal | None = effective.new_beneficiary_thresholds.get(currency, base)
+        else:
+            threshold = base
+
+        reason: str | None = None
+        if amount is None:
+            reason = (
+                f"new beneficiary {beneficiary!r} on protected endpoint without an amount "
+                "(fail-closed)"
+            )
+        elif threshold is None:
+            reason = (
+                f"new beneficiary {beneficiary!r} with currency {currency or 'MISSING'!r} "
+                "has no configured threshold (fail-closed)"
+            )
+        elif amount > threshold:
+            tightened = (
+                f" [tightened for {effective.off_hours_reason}]"
+                if effective.off_hours_reason
+                else ""
+            )
+            reason = (
+                f"new beneficiary {beneficiary!r} with amount {amount} {currency} "
+                f"exceeds {threshold}{tightened}"
+            )
+        if reason is None:
+            return None
+
+        decision = Decision.BLOCK if self._p.action == "block" else Decision.HITL_REQUIRED
+        return Violation(R_NEW_BENEFICIARY, "high", 3, decision, f"{tool_name!r}: {reason}")
+
+
+class SequenceRuleDetector:
+    """Stage 2: reconnaissance-to-payment kill-chain sequence detection."""
+
+    def __init__(self, policy: SequencePolicy) -> None:
+        self._p = policy
+        self._windows = KeyedSlidingWindow(policy.window_seconds, maxlen=policy.min_recon_calls)
+
+    def observe(self, agent_run_id: str, tool_name: str, now: float) -> Violation | None:
+        if not self._p.enabled:
+            return None
+        if tool_name in self._p.recon_tools:
+            self._windows.hit(agent_run_id, now)
+            return None
+        if tool_name in self._p.payment_tools:
+            recon_count = self._windows.count(agent_run_id, now)
+            if recon_count >= self._p.min_recon_calls:
+                return Violation(
+                    R_SEQUENCE,
+                    "high",
+                    2,
+                    Decision.BLOCK,
+                    f"{tool_name!r} called after {recon_count} recon call(s) within "
+                    f"{self._p.window_seconds:g}s (limit {self._p.min_recon_calls})",
+                    quarantine=True,
+                )
+        return None
 
 
 # --------------------------------------------------------------------------------------

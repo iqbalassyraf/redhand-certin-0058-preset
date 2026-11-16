@@ -31,16 +31,22 @@ from .detectors import (
     R_ENV_PIVOT,
     R_HITL,
     R_MICRO_TX,
+    R_NEW_BENEFICIARY,
     R_OFF_HOURS,
     R_OFF_HOURS_HITL,
     R_QUARANTINED,
+    R_SEQUENCE,
+    R_STRUCTURING,
     R_TOKEN_INVALID,
     R_TOOL_NOT_PINNED,
     R_VELOCITY,
     HighValueGate,
     MicroTxProbeDetector,
+    NewBeneficiaryDetector,
     OffHoursEvaluator,
     QuarantineRegistry,
+    SequenceRuleDetector,
+    StructuringDetector,
     VelocityDetector,
     Violation,
 )
@@ -49,8 +55,11 @@ from .exceptions import (
     HITLRequiredError,
     MicroTxProbeError,
     MissingContextError,
+    NewBeneficiaryError,
     PolicyLoadError,
+    SequenceViolationError,
     ShieldError,
+    StructuringError,
     TokenInvalidError,
     TokenPivotError,
     ToolNotPinnedError,
@@ -84,7 +93,10 @@ _EXCEPTION_FOR_RULE: dict[str, type[ShieldError]] = {
     R_TOOL_NOT_PINNED: ToolNotPinnedError,
     R_MICRO_TX: MicroTxProbeError,
     R_VELOCITY: VelocityExceededError,
+    R_STRUCTURING: StructuringError,
+    R_SEQUENCE: SequenceViolationError,
     R_HITL: HITLRequiredError,
+    R_NEW_BENEFICIARY: NewBeneficiaryError,
     R_OFF_HOURS_HITL: HITLRequiredError,
 }
 
@@ -94,6 +106,16 @@ class Evaluation:
     decision: Decision
     findings: list[M42Finding]
     latency_us: int
+
+    def primary_finding(self) -> M42Finding | None:
+        """Return the highest-severity non-ALLOW finding (BLOCK > HITL_REQUIRED)."""
+        first_non_allow: M42Finding | None = None
+        for f in self.findings:
+            if f.decision is Decision.BLOCK:
+                return f
+            if f.decision is not Decision.ALLOW and first_non_allow is None:
+                first_non_allow = f
+        return first_non_allow or (self.findings[0] if self.findings else None)
 
 
 class Shield:
@@ -138,7 +160,13 @@ class Shield:
         self._off_hours = OffHoursEvaluator(policy)
         self._micro = MicroTxProbeDetector(policy.micro_tx)
         self._velocity = VelocityDetector(policy.velocity)
+        self._structuring = StructuringDetector(policy.structuring)
+        self._sequence = SequenceRuleDetector(policy.sequence)
         self._hitl = HighValueGate(policy.hitl)
+        self._new_beneficiary = NewBeneficiaryDetector(
+            policy.new_beneficiary,
+            protected_tools=policy.hitl.protected_tools,
+        )
         self._state_lock = threading.Lock()  # guards the sliding windows only
         self.audit_failures = 0
         self.telemetry_failures = 0
@@ -245,16 +273,40 @@ class Shield:
                     )
                 )
 
-            # [4] Sliding-window detectors (short critical section) + stateless HITL gate.
+            # [4] Stateless HITL gates + sliding-window detectors (short critical section).
+            gate_violations: list[Violation] = []
+            gate = self._hitl.evaluate(ctx.tool_name, ctx.amount, ctx.currency, claims, effective)
+            if gate is not None:
+                gate_violations.append(gate)
+            new_ben = self._new_beneficiary.evaluate(
+                ctx.tool_name, ctx.beneficiary, ctx.amount, ctx.currency, claims, effective
+            )
+            if new_ben is not None:
+                gate_violations.append(new_ben)
+
+            has_hitl_rejection = any(v.decision is Decision.HITL_REQUIRED for v in gate_violations)
+
             with self._state_lock:
                 probe = self._micro.observe(
                     ctx.agent_run_id, ctx.amount, ctx.currency, now, effective
                 )
                 burst = self._velocity.observe(ctx.agent_run_id, ctx.tool_name, now, effective)
-            violations.extend(v for v in (probe, burst) if v is not None)
-            gate = self._hitl.evaluate(ctx.tool_name, ctx.amount, ctx.currency, claims, effective)
-            if gate is not None:
-                violations.append(gate)
+                structuring = (
+                    None
+                    if has_hitl_rejection
+                    else self._structuring.observe(
+                        ctx.agent_run_id,
+                        ctx.tool_name,
+                        ctx.amount,
+                        ctx.currency,
+                        now,
+                        effective,
+                        claims,
+                    )
+                )
+                sequence = self._sequence.observe(ctx.agent_run_id, ctx.tool_name, now)
+            violations.extend(v for v in (probe, burst, structuring, sequence) if v is not None)
+            violations.extend(gate_violations)
 
         return self._finish(ctx, violations, now_dt, t0)
 
@@ -316,10 +368,14 @@ class Shield:
     # ------------------------------------------------------------------------------
 
     def _raise_for(self, evaluation: Evaluation) -> None:
-        for f in evaluation.findings:
-            if f.decision is not Decision.ALLOW:
-                exc_cls = _EXCEPTION_FOR_RULE.get(f.rule_id, ShieldError)
-                raise exc_cls(f"[{f.rule_id}] {f.detail}", f)
+        f = evaluation.primary_finding()
+        if f is None or f.decision is Decision.ALLOW:
+            return
+        if f.rule_id == R_NEW_BENEFICIARY and f.decision is Decision.HITL_REQUIRED:
+            exc_cls: type[ShieldError] = HITLRequiredError
+        else:
+            exc_cls = _EXCEPTION_FOR_RULE.get(f.rule_id, ShieldError)
+        raise exc_cls(f"[{f.rule_id}] {f.detail}", f)
 
     def _write_audit(
         self,

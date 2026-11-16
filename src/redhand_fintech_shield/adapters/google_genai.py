@@ -87,10 +87,7 @@ class GoogleGenAIAdapter:
 
         if is_blocked:
             self.shield._write_audit(ctx, evaluation, "blocked")
-            finding = next(
-                (f for f in evaluation.findings if f.decision is not Decision.ALLOW),
-                evaluation.findings[0] if evaluation.findings else None,
-            )
+            finding = evaluation.primary_finding()
             payload = format_violation_payload(finding, evaluation)
             return self._build_response(tool_name, payload, call_id)
 
@@ -118,10 +115,7 @@ class GoogleGenAIAdapter:
 
         if is_blocked:
             self.shield._write_audit(ctx, evaluation, "blocked")
-            finding = next(
-                (f for f in evaluation.findings if f.decision is not Decision.ALLOW),
-                evaluation.findings[0] if evaluation.findings else None,
-            )
+            finding = evaluation.primary_finding()
             payload = format_violation_payload(finding, evaluation)
             return self._build_response(tool_name, payload, call_id)
 

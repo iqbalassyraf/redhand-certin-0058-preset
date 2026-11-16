@@ -95,10 +95,7 @@ class AzureOpenAIAdapter:
         evaluation: Evaluation,
     ) -> dict[str, Any]:
         """Build an Azure OpenAI error tool message containing M42Finding details."""
-        finding = next(
-            (f for f in evaluation.findings if f.decision is not Decision.ALLOW),
-            evaluation.findings[0] if evaluation.findings else None,
-        )
+        finding = evaluation.primary_finding()
         payload = format_violation_payload(finding, evaluation)
         return self._build_tool_message(tool_call_id, name, payload)
 
@@ -219,10 +216,7 @@ class RedHandSemanticKernelFilter:
 
         if is_blocked:
             self.shield._write_audit(ctx, evaluation, "blocked")
-            finding = next(
-                (f for f in evaluation.findings if f.decision is not Decision.ALLOW),
-                evaluation.findings[0] if evaluation.findings else None,
-            )
+            finding = evaluation.primary_finding()
             payload = format_violation_payload(finding, evaluation)
 
             # Halt further loop progression and override result

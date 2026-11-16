@@ -161,6 +161,73 @@ class OffHoursPolicy(BaseModel):
         return v
 
 
+class StructuringPolicy(BaseModel):
+    """Stage 2: split-transaction structuring (smurfing) within a sliding window."""
+
+    model_config = _STRICT
+
+    enabled: bool = True
+    protected_tools: frozenset[NonEmptyStr] = frozenset()
+    thresholds: dict[CurrencyCode, Decimal] = Field(
+        default_factory=lambda: {"USD": Decimal("10000.00")},
+        description="Per-currency cumulative amount above which multiple calls trip structuring.",
+    )
+    window_seconds: float = Field(default=300.0, gt=0)
+    min_tx_count: int = Field(default=2, ge=1)
+
+    @field_validator("thresholds", mode="before")
+    @classmethod
+    def _no_floats(cls, v: Any) -> Any:
+        if isinstance(v, dict):
+            for item in v.values():
+                _reject_float(item)
+        return v
+
+    @field_validator("thresholds")
+    @classmethod
+    def _valid_thresholds(cls, v: dict[str, Decimal]) -> dict[str, Decimal]:
+        return _check_currency_map(v, "structuring.thresholds")
+
+
+class NewBeneficiaryPolicy(BaseModel):
+    """Stage 3: high-value disbursement to an unseen/untrusted beneficiary."""
+
+    model_config = _STRICT
+
+    enabled: bool = True
+    thresholds: dict[CurrencyCode, Decimal] = Field(
+        default_factory=lambda: {"USD": Decimal("1000.00")},
+        description="Per-currency amount above which an unseen beneficiary triggers action.",
+    )
+    known_beneficiaries: frozenset[NonEmptyStr] = frozenset()
+    action: Literal["hitl_required", "block"] = "hitl_required"
+
+    @field_validator("thresholds", mode="before")
+    @classmethod
+    def _no_floats(cls, v: Any) -> Any:
+        if isinstance(v, dict):
+            for item in v.values():
+                _reject_float(item)
+        return v
+
+    @field_validator("thresholds")
+    @classmethod
+    def _valid_thresholds(cls, v: dict[str, Decimal]) -> dict[str, Decimal]:
+        return _check_currency_map(v, "new_beneficiary.thresholds")
+
+
+class SequencePolicy(BaseModel):
+    """Stage 2: reconnaissance-to-payment kill-chain sequence detection."""
+
+    model_config = _STRICT
+
+    enabled: bool = True
+    recon_tools: frozenset[NonEmptyStr] = frozenset()
+    payment_tools: frozenset[NonEmptyStr] = frozenset()
+    min_recon_calls: int = Field(default=3, ge=1)
+    window_seconds: float = Field(default=30.0, gt=0)
+
+
 class PolicyConfig(BaseModel):
     """Declarative policy; loaded from ``presets/certin_ciad_2026_0058.yaml``."""
 
@@ -175,6 +242,9 @@ class PolicyConfig(BaseModel):
     velocity: VelocityPolicy = Field(default_factory=VelocityPolicy)
     hitl: HITLPolicy = Field(default_factory=HITLPolicy)
     off_hours: OffHoursPolicy = Field(default_factory=OffHoursPolicy)
+    structuring: StructuringPolicy = Field(default_factory=StructuringPolicy)
+    new_beneficiary: NewBeneficiaryPolicy = Field(default_factory=NewBeneficiaryPolicy)
+    sequence: SequencePolicy = Field(default_factory=SequencePolicy)
     quarantine_on_block: bool = True
     audit_path: Path = Path("audit_trail.jsonl")
     audit_fsync: bool = False
@@ -207,6 +277,7 @@ class ToolCallContext(BaseModel):
     token: str
     amount: Decimal | None = None
     currency: CurrencyCode | None = None
+    beneficiary: NonEmptyStr | None = None
     timestamp: datetime | None = Field(
         default=None,
         description="Caller-claimed time; logged but NEVER trusted. The shield uses its own clock.",

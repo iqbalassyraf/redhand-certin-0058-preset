@@ -89,10 +89,7 @@ class RedHandGuardedTool:
             self.shield._write_audit(ctx, evaluation, "blocked")
             if self.raise_on_block:
                 self.shield._raise_for(evaluation)
-            finding = next(
-                (f for f in evaluation.findings if f.decision is not Decision.ALLOW),
-                evaluation.findings[0] if evaluation.findings else None,
-            )
+            finding = evaluation.primary_finding()
             return format_violation_payload(finding, evaluation)
 
         sanitized_kwargs = sanitize_arguments(kwargs)
@@ -126,10 +123,7 @@ class RedHandGuardedTool:
             self.shield._write_audit(ctx, evaluation, "blocked")
             if self.raise_on_block:
                 self.shield._raise_for(evaluation)
-            finding = next(
-                (f for f in evaluation.findings if f.decision is not Decision.ALLOW),
-                evaluation.findings[0] if evaluation.findings else None,
-            )
+            finding = evaluation.primary_finding()
             return format_violation_payload(finding, evaluation)
 
         sanitized_kwargs = sanitize_arguments(kwargs)

@@ -55,10 +55,7 @@ class BedrockConverseAdapter:
         evaluation: Evaluation,
     ) -> dict[str, Any]:
         """Build a Bedrock Converse toolResult error block from evaluation findings."""
-        finding = next(
-            (f for f in evaluation.findings if f.decision is not Decision.ALLOW),
-            evaluation.findings[0] if evaluation.findings else None,
-        )
+        finding = evaluation.primary_finding()
         rule_id = finding.rule_id if finding else "UNKNOWN"
         detail = finding.detail if finding else "Security policy violation"
 
