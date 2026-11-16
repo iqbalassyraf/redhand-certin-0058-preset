@@ -55,6 +55,50 @@ off_hours:
     - 2026-10-02                  # Gandhi Jayanti
     - 2026-12-25                  # Christmas Day
 
+# --- Stage 2: split-transaction structuring (smurfing) across protected endpoints ---
+# Prevents an attacker from splitting a large disbursement into sub-HITL chunks inside 5 minutes.
+# Scoped to settlement/disbursement tools so high-volume low-risk card charges are unaffected.
+structuring:
+  enabled: true
+  protected_tools:
+    - settle_merchant
+    - initiate_disbursement
+    - bulk_payout
+  thresholds:                     # cumulative amount strictly above triggers block + quarantine
+    USD: "10000"
+    INR: "900000"
+    MYR: "45000"
+    SGD: "13500"
+  window_seconds: 300
+  min_tx_count: 2                 # single large tx routes to HITL rather than structuring
+
+# --- Stage 3: unseen/new beneficiary high-value disbursement gate ---
+# Requires HITL step-up when funds are routed to a beneficiary not in known_beneficiaries.
+new_beneficiary:
+  enabled: true
+  thresholds:                     # lower than general HITL (~USD 1,000) to catch mule diversion
+    USD: "1000"
+    INR: "90000"
+    MYR: "4500"
+    SGD: "1350"
+  known_beneficiaries: []         # operator populates pre-vetted payout beneficiaries
+  action: hitl_required           # hitl_required | block
+
+# --- Stage 2: reconnaissance-to-payment kill-chain sequence ---
+# Blocks automated discovery bursts (>= 3 recon calls) immediately followed by a payout call.
+sequence:
+  enabled: true
+  recon_tools:
+    - list_merchants
+    - get_account
+    - list_beneficiaries
+  payment_tools:
+    - settle_merchant
+    - initiate_disbursement
+    - bulk_payout
+  min_recon_calls: 3
+  window_seconds: 30
+
 # --- Containment & evidence (CIAD-2026-0049: tamper-resistant logs, retain 180+ days) ---
 quarantine_on_block: true
 quarantine_journal_path: quarantine.jsonl   # replayed on startup so a crash does not free an agent

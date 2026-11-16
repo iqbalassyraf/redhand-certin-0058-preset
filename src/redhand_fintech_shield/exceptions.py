@@ -58,3 +58,15 @@ class VelocityExceededError(ShieldError):
 
 class HITLRequiredError(ShieldError):
     """Human-in-the-loop step-up is required for this call (stages 3 and 4)."""
+
+
+class StructuringError(ShieldError):
+    """Split-transaction structuring (smurfing) detected (stage 2)."""
+
+
+class NewBeneficiaryError(ShieldError):
+    """High-value disbursement to an unseen/untrusted beneficiary blocked (stage 3)."""
+
+
+class SequenceViolationError(ShieldError):
+    """Reconnaissance-to-payment kill-chain sequence detected (stage 2)."""

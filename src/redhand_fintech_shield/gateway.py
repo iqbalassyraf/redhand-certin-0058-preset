@@ -139,6 +139,14 @@ def extract_tool_call_context(
     raw_currency = arguments.get("currency")
     currency = str(raw_currency).upper() if raw_currency is not None else None
 
+    raw_beneficiary = (
+        arguments.get("beneficiary") or meta_dict.get("beneficiary") or arg_meta.get("beneficiary")
+    )
+    beneficiary: str | None = None
+    if raw_beneficiary is not None:
+        stripped = str(raw_beneficiary).strip()
+        beneficiary = stripped if stripped else None
+
     # 5. Metadata extraction
     metadata: dict[str, str] = {}
     for source in (meta_dict, arg_meta):
@@ -153,6 +161,7 @@ def extract_tool_call_context(
         token=token,
         amount=amount,  # type: ignore[arg-type]
         currency=currency,
+        beneficiary=beneficiary,
         metadata=metadata,
     )
 
@@ -312,10 +321,7 @@ class MCPGateway:
             # Crucial: write blocked audit event and return error WITHOUT invoking raw tool
             self.shield._write_audit(ctx, evaluation, "blocked")
 
-            finding = next(
-                (f for f in evaluation.findings if f.decision is not Decision.ALLOW),
-                evaluation.findings[0] if evaluation.findings else None,
-            )
+            finding = evaluation.primary_finding()
             rule_id = finding.rule_id if finding else "UNKNOWN"
             detail = finding.detail if finding else "Security policy violation"
 
