@@ -19,7 +19,7 @@ benchmark harness so anyone can reproduce them.
   are expected to live in separate packages built on tagged releases of this one.
 - **No platform code in the core.** The core exposes interfaces. Platform adapters live elsewhere.
 
-## Where we are (Phase 1 & Phase 2 complete)
+## Where we are (Phases 1 and 2 complete, Phase 3 in progress)
 
 In-process decorator, Ed25519 per-run tokens, sliding-window detectors, HITL gate, off-hours
 tightening, journaled quarantine, hash-chained audit log with rotation and an offline verifier,
@@ -27,11 +27,14 @@ extensibility protocols (`protocols.py`), out-of-process MCP Gateway (`MCPGatewa
 multi-cloud and framework adapters (`BedrockConverseAdapter`, `AzureOpenAIAdapter`,
 `RedHandSemanticKernelFilter`, `GoogleGenAIAdapter`, `RedHandGuardedTool`, `GenericToolRunner`),
 production multi-stage `Dockerfile`, automated latency benchmark suite (`benchmarks/bench_latency.py`),
-a CLI, a terminal attack simulation, and 253 tests. Measured via `benchmarks/bench_latency.py`:
+a CLI, a terminal attack simulation, and 271 tests at 99% coverage. Phase 3 M1 added three
+deterministic detectors: split-transaction structuring, new-beneficiary high value, and the
+recon-to-payment sequence rule. Measured via `benchmarks/bench_latency.py` before M1:
 a full in-process guarded call has a p50 of 0.20 ms and p99 of 0.27 ms, and an out-of-process
 MCP Gateway `tools/call` roundtrip has a p50 of 0.37 ms and p99 of 0.54 ms.
 
-Known limits this roadmap exists to address: state is per process; step-up approval is a
+Known limits this roadmap exists to address: argument extraction only understands `amount`,
+`currency` and `beneficiary`; state is per process; step-up approval is a
 run-wide flag rather than per transaction; the audit log is tamper-evident but not tamper-proof;
 tool pinning covers names, not tool code.
 
@@ -79,15 +82,71 @@ MCP Gateway loopback p99: 0.54 ms; 253 tests passing at >= 97% coverage).
 
 New deterministic rules and stronger approval.
 
-- **Structuring:** several payments just under a threshold that together exceed it.
-- **New beneficiary plus high value.**
-- **Sequence rules:** enumeration followed by a payment within a window.
-- **Per-transaction step-up:** a detached Ed25519 signature over amount, beneficiary and a nonce,
-  replacing the run-wide flag; nonces are single use.
-- **Composable policies:** user rules layered on the preset without forking it.
+- [x] **M1: Structuring, new beneficiary plus high value, and sequence rules.** Structuring is
+  several payments just under a threshold that together exceed it; the sequence rule is
+  enumeration followed by a payment within a window.
+- [ ] **M2: Argument binding.** Today the gateway (`gateway.py`) and the adapters
+  (`adapters/_common.py`) each read only `amount`, `currency` and `beneficiary`. A tool that
+  names its fields `value`, `payee` or `vpa`, or a bulk payout carrying a list of payees, is
+  invisible to every money rule.
+  - A `tool_bindings:` policy section maps each tool to the argument paths for amount, currency
+    and beneficiary, with list aggregation for bulk payouts.
+  - A protected tool with no binding fails closed.
+  - One shared extraction function replaces the two copies.
+- [ ] **M3: Per-transaction step-up.** Replaces the run-wide `hitl_step_up` flag.
+  - An `ApprovalRequest` model (id, run, tool, amount, currency, beneficiary, arguments hash,
+    expiry) that the host application can show to a human.
+  - A detached Ed25519 signature over that request plus a nonce; nonces are single use and live
+    in a replay store behind a protocol.
+  - `hitl_step_up` stays only behind a deprecation flag and is removed before 1.0.
+- [ ] **M4: Harder aggregation.** Closes the ways the M1 detectors can be sidestepped.
+  - Structuring per beneficiary and per subject, across runs, not only per (run, currency).
+  - A rolling 24-hour cumulative cap per run and per subject.
+  - Velocity across all tools for a run, so rotating tools does not reset the count.
+  - A beneficiary normaliser (UPI VPA, IFSC plus account number, IBAN) so one payee cannot
+    appear as several.
+- [ ] **M5: Composable policies.** User rules layered on the preset without forking it.
+  - An `extends:` overlay that can only tighten limits unless a field is explicitly marked
+    loosenable.
+  - Per-rule `enabled`, `mode` and `severity` overrides, so a new rule can run in shadow while
+    the others enforce.
+  - Exemptions that carry an expiry and are written to the audit log.
 
-**Done when:** each rule has positive and negative tests and a documented rationale; a replayed or
-reused approval signature is rejected; the in-process p99 stays under 2 ms with all rules enabled.
+**Done when:** each rule has positive and negative tests and a documented rationale; a replayed
+or reused approval signature is rejected; a payment through a differently named argument or a
+bulk list is still judged; the structuring and velocity bypasses above each have a failing test
+that now passes; the in-process p99 stays under 2 ms with all rules enabled, re-measured with
+`benchmarks/bench_latency.py`.
+
+## Phase 3.5: Integration contract
+
+The preset will be embedded in the main RedHand app. This phase makes the boundary explicit and
+versioned so the two can evolve separately. It adds interfaces only; no platform code enters the
+core.
+
+- **Preset manifest.** `preset_id`, a semantic `preset_version`, a `schema_version` in the YAML,
+  advisory references, and a rule catalog (id, stage, severity, rationale, advisory clause).
+  Exposed through a `redhand.presets` entry point and a `redhand-shield manifest` command.
+- **JSON Schema export** for `PolicyConfig`, `M42Finding`, `AuditRecord` and `ApprovalRequest`,
+  with golden-file tests so a schema change is always a visible diff. Diff against the RedHand
+  M4.2 and M4.3 schemas as soon as they are available.
+- **Policy fingerprint.** The SHA-256 of the canonical policy goes into every audit record and
+  finding, so a decision can be traced to the exact policy that made it.
+- **Token identity.** An `aud` claim; a keyring keyed by `kid` with rotation and an overlap
+  window; a `jti` replay cache; a revocation hook. Each sits behind a protocol in
+  `protocols.py` and has an in-memory default.
+- **`DetectorStateBackend` protocol.** Sliding-window state moves behind a protocol with the
+  current in-memory implementation as the default, so the host can supply a shared store.
+  Quarantine already has this seam; the windows do not.
+- **HITL hand-off.** The `ApprovalRequest` from Phase 3 M3 is attached to the exception and to
+  the finding, so the host can render, approve and sign it without parsing messages.
+- **Stable public API.** An explicit list of public names in `__init__.py`, a deprecation
+  policy in `CONTRIBUTING.md`, and a CI check that fails on an unannounced removal.
+
+**Done when:** the manifest and every schema are generated from code and pinned by golden
+tests; a token signed with a rotated key verifies during the overlap window and not after; a
+replayed `jti` is rejected; a decision in the audit log names the policy fingerprint; a
+fake host backend passes the same detector tests as the in-memory one.
 
 ## Phase 4: Proof and evidence
 
@@ -96,6 +155,13 @@ Make every claim checkable.
 - **Replay corpus** of CRAFTY FALCON-style traces plus benign traffic, with a harness that
   reports detection rate and false-positive rate per rule, versioned with the corpus.
 - **Property-based tests and fuzzing** for the token parser, policy loader and audit verifier.
+- **Bypass cases in the corpus:** cross-currency splitting, tool rotation, differently named
+  arguments and bulk-payout lists, each with the expected verdict.
+- **Fuzzing of the binding resolver and the beneficiary normaliser**, alongside the token
+  parser, policy loader and audit verifier.
+- **Versioned calendar data.** Holidays move into a data file per year, with a startup
+  warning when the current or next year is missing. Bank holidays and a wider currency table
+  are listed as operator-supplied, not shipped as fact.
 - **`report` command** that turns an audit log into a self-contained HTML report mapping each
   advisory requirement to the control and the logged evidence, with the chain-verification result
   and a timeline of blocked attacks.

@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Production multi-stage `Dockerfile` (`python:3.12-slim-bookworm`, unprivileged `redhand` UID `10001`, `/app/data`) and `.dockerignore` (Phase 2 M4).
 - Automated latency benchmark suite (`benchmarks/bench_latency.py`) covering Decision Core, In-Process Guarded Call, MCP Gateway loopback, and Multi-Cloud Adapters, plus cross-platform smoke test (`tests/test_benchmark.py`) (Phase 2 M4).
 - Updated `README.md` with MCP Gateway & Docker quickstart, multi-cloud adapter snippets, and empirical latency benchmark table; marked Phase 2 complete in `UPGRADE.md` (Phase 2 M4).
+- Phase 3 M1 detectors: split-transaction structuring (`CIAD-2026-0058.R2.structuring`), recon-to-payment sequence (`CIAD-2026-0058.R2.recon_to_payment_sequence`) and new-beneficiary high value (`CIAD-2026-0058.R3.new_beneficiary_high_value`), with `structuring`, `new_beneficiary` and `sequence` sections in the preset and new exceptions `StructuringError`, `NewBeneficiaryError` and `SequenceViolationError`.
+- Roadmap: Phase 3 milestones M2 to M5 (argument binding, per-transaction step-up, harder aggregation, composable policies) and a new Phase 3.5 integration contract in `UPGRADE.md`.
 
 ## [0.1.0] - 2026-11-12
 

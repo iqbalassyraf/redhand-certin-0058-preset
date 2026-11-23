@@ -52,6 +52,9 @@ tampering attempt being detected.
 | 2. Micro-transaction probing | 2nd payment `<=` per-currency ceiling (USD 5.00, INR 450, MYR 25, SGD 7) in 60 s trips the breaker and quarantines | `R2.micro_tx_probe` |
 | 2. Enumeration bursts (CIAD-2026-0049) | More than 20 calls/s per (agent run, tool) | `R2.velocity_burst` |
 | 3. Settlement/disbursement abuse | Tool must be in the signed `allowed_tools`; amounts above USD 10,000 on protected tools need a `hitl_step_up` token | `R3.tool_not_pinned`, `R3.hitl_required` |
+| 2. Structuring (split payments) | Cumulative amount over 300 s on protected tools above the per-currency threshold, 2+ payments | `R2.structuring` |
+| 2. Recon then payout | 3+ recon calls (`list_merchants`, `get_account`, ...) within 30 s followed by a payment tool | `R2.recon_to_payment_sequence` |
+| 3. New beneficiary | Payee outside `known_beneficiaries` above USD 1,000 (INR 90,000, MYR 4,500, SGD 1,350) needs step-up or is blocked | `R3.new_beneficiary_high_value` |
 | 4. Low-monitoring windows | Weekends, holidays, outside 09:00-18:00 IST: probe/velocity limits and HITL thresholds are halved, and HITL is mandatory on protected tools | `R4.off_hours_hitl_required` |
 | CIAD-2026-0049 identity | Ed25519 token bound to one `agent_run_id`, 15-minute default TTL, 1-hour policy cap | `R1.token_invalid` |
 | CIAD-2026-0049 logs | SHA-256 hash-chained JSONL, offline verifier, rotation that keeps the chain | |
