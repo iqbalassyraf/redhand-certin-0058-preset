@@ -48,6 +48,9 @@ R_HITL = "CIAD-2026-0058.R3.hitl_required"
 R_NEW_BENEFICIARY = "CIAD-2026-0058.R3.new_beneficiary_high_value"
 R_OFF_HOURS_HITL = "CIAD-2026-0058.R4.off_hours_hitl_required"
 R_OFF_HOURS = "CIAD-2026-0058.R4.off_hours_tightened"
+R_APPROVAL_ACCEPTED = "CIAD-2026-0058.R3.approval_accepted"
+R_APPROVAL_REJECTED = "CIAD-2026-0058.R3.approval_rejected"
+R_LEGACY_STEP_UP = "CIAD-2026-0058.R3.legacy_run_wide_step_up"
 
 Severity = str  # "low" | "medium" | "high" | "critical"
 

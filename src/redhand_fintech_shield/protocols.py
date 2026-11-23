@@ -48,6 +48,20 @@ class QuarantineBackend(Protocol):
 
 
 @runtime_checkable
+class NonceStore(Protocol):
+    """Protocol for the single-use ledger behind per-transaction approvals."""
+
+    def consume(self, nonce: str, expires_at: int) -> bool:
+        """Atomically mark ``nonce`` spent. True if it was unused, False if already spent.
+
+        ``expires_at`` (epoch seconds) lets a store forget the nonce once the approval carrying it
+        could no longer verify. A store that cannot record the nonce must raise or return False:
+        an approval is honoured only when this returns True.
+        """
+        ...  # pragma: no cover
+
+
+@runtime_checkable
 class Clock(Protocol):
     """Protocol for wall-clock time sources."""
 
@@ -109,6 +123,7 @@ __all__ = [
     "AuditLogBackend",
     "Clock",
     "MonotonicClock",
+    "NonceStore",
     "NullTelemetrySink",
     "QuarantineBackend",
     "TelemetrySink",

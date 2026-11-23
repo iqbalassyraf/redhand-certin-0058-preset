@@ -25,11 +25,20 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal, TypeVar, cast
 
+from .approvals import (
+    ApprovalVerifier,
+    NonceRegistry,
+    binding_mismatch,
+    build_request,
+)
 from .audit import HashChainedAuditLog
 from .crypto import AgentTokenVerifier, load_public_key_pem, utcnow
 from .detectors import (
+    R_APPROVAL_ACCEPTED,
+    R_APPROVAL_REJECTED,
     R_ENV_PIVOT,
     R_HITL,
+    R_LEGACY_STEP_UP,
     R_MICRO_TX,
     R_NEW_BENEFICIARY,
     R_OFF_HOURS,
@@ -66,6 +75,7 @@ from .exceptions import (
     VelocityExceededError,
 )
 from .models import (
+    ApprovalRequest,
     AuditRecord,
     Decision,
     M42Finding,
@@ -78,6 +88,7 @@ from .protocols import (
     AuditLogBackend,
     Clock,
     MonotonicClock,
+    NonceStore,
     NullTelemetrySink,
     QuarantineBackend,
     TelemetrySink,
@@ -96,6 +107,7 @@ _EXCEPTION_FOR_RULE: dict[str, type[ShieldError]] = {
     R_STRUCTURING: StructuringError,
     R_SEQUENCE: SequenceViolationError,
     R_HITL: HITLRequiredError,
+    R_APPROVAL_REJECTED: HITLRequiredError,
     R_NEW_BENEFICIARY: NewBeneficiaryError,
     R_OFF_HOURS_HITL: HITLRequiredError,
 }
@@ -106,6 +118,8 @@ class Evaluation:
     decision: Decision
     findings: list[M42Finding]
     latency_us: int
+    # Present when the call needs step-up: exactly what a human approver is asked to sign.
+    approval_request: ApprovalRequest | None = None
 
     def primary_finding(self) -> M42Finding | None:
         """Return the highest-severity non-ALLOW finding (BLOCK > HITL_REQUIRED)."""
@@ -131,6 +145,8 @@ class Shield:
         quarantine: QuarantineBackend | None = None,
         quarantine_tracker: QuarantineBackend | None = None,
         telemetry_sink: TelemetrySink | None = None,
+        approval_verifier: ApprovalVerifier | None = None,
+        nonce_store: NonceStore | None = None,
         clock: Clock | Callable[[], datetime] = utcnow,
         monotonic: MonotonicClock | Callable[[], float] = time.monotonic,
     ) -> None:
@@ -157,6 +173,15 @@ class Shield:
             telemetry_sink if telemetry_sink is not None else NullTelemetrySink()
         )
 
+        self._approval_verifier = approval_verifier or self._approval_verifier_from_policy(
+            policy, self._clock
+        )
+        self._check_key_separation()
+        self._nonces: NonceStore = nonce_store or NonceRegistry(
+            policy.approval.nonce_journal_path,
+            max_entries=policy.approval.max_nonces,
+            clock=self._clock,
+        )
         self._off_hours = OffHoursEvaluator(policy)
         self._micro = MicroTxProbeDetector(policy.micro_tx)
         self._velocity = VelocityDetector(policy.velocity)
@@ -196,6 +221,97 @@ class Shield:
             max_ttl_seconds=policy.max_token_ttl_seconds,
             clock=clock,
         )
+
+    @staticmethod
+    def _approval_verifier_from_policy(
+        policy: PolicyConfig, clock: Callable[[], datetime]
+    ) -> ApprovalVerifier | None:
+        if policy.approval.verifier_public_key_path is None:
+            return None
+        return ApprovalVerifier(
+            load_public_key_pem(policy.approval.verifier_public_key_path),
+            policy.approval.issuer,
+            max_ttl_seconds=policy.approval.max_ttl_seconds,
+            clock=clock,
+        )
+
+    def _check_key_separation(self) -> None:
+        """An approver key equal to the token issuer's would let the issuer approve its own runs."""
+        approver = getattr(self._approval_verifier, "key_fingerprint", None)
+        issuer = getattr(self._verifier, "key_fingerprint", None)
+        if approver is not None and approver == issuer:
+            raise PolicyLoadError(
+                "the approval verifier key must differ from the agent-token verifier key"
+            )
+
+    def _resolve_step_up(
+        self, ctx: ToolCallContext, claims: TokenClaims, pending: list[Violation]
+    ) -> tuple[bool, list[Violation]]:
+        """Decide whether the pending HITL requirements are satisfied.
+
+        Returns ``(cleared, extra_findings)``. A per-transaction approval is tried first, then
+        (only if the policy still allows it) the deprecated run-wide ``hitl_step_up`` claim.
+        """
+        extra: list[Violation] = []
+        if ctx.approval is not None:
+            reason, accepted = self._spend_approval(ctx)
+            if reason is None:
+                extra.append(
+                    Violation(
+                        R_APPROVAL_ACCEPTED,
+                        "low",
+                        3,
+                        Decision.ALLOW,
+                        f"per-transaction approval accepted ({accepted})",
+                    )
+                )
+                return True, extra
+            extra.append(
+                Violation(
+                    R_APPROVAL_REJECTED,
+                    "high",
+                    3,
+                    Decision.HITL_REQUIRED,
+                    f"approval not honoured: {reason}",
+                )
+            )
+        if extra:
+            # A rejected per-transaction approval must not silently fall through to the old flag.
+            return False, extra
+        if claims.hitl_step_up and self.policy.approval.allow_legacy_step_up:
+            rules = ", ".join(sorted({v.rule_id.rsplit(".", 1)[-1] for v in pending}))
+            extra.append(
+                Violation(
+                    R_LEGACY_STEP_UP,
+                    "low",
+                    3,
+                    Decision.ALLOW,
+                    f"run-wide hitl_step_up satisfied {rules} (deprecated: use per-transaction "
+                    "approvals)",
+                )
+            )
+            return True, extra
+        return False, extra
+
+    def _spend_approval(self, ctx: ToolCallContext) -> tuple[str | None, str]:
+        """Verify and spend the approval: ``(None, who)`` on success, else ``(reason, "")``."""
+        verifier = self._approval_verifier
+        if verifier is None or ctx.approval is None:
+            return "no approval verifier is configured (fail-closed)", ""
+        try:
+            approval = verifier.verify(ctx.approval)
+        except ValueError as exc:
+            return str(exc), ""
+        if (mismatch := binding_mismatch(approval, ctx)) is not None:
+            return mismatch, ""
+        try:
+            fresh = self._nonces.consume(approval.nonce, approval.exp)
+        except Exception:
+            _log.exception("approval nonce store failed")
+            return "approval store unavailable (fail-closed)", ""
+        if not fresh:
+            return "approval already used or the nonce store is full", ""
+        return None, f"request {approval.request_id} approved by {approval.sub!r}"
 
     # ------------------------------------------------------------------------------
     # Decision core
@@ -275,7 +391,9 @@ class Shield:
 
             # [4] Stateless HITL gates + sliding-window detectors (short critical section).
             gate_violations: list[Violation] = []
-            gate = self._hitl.evaluate(ctx.tool_name, ctx.amount, ctx.currency, claims, effective)
+            # The gates are given no claims: whether a pending HITL requirement is satisfied is
+            # decided below, by a per-transaction approval or the deprecated run-wide claim.
+            gate = self._hitl.evaluate(ctx.tool_name, ctx.amount, ctx.currency, None, effective)
             if gate is not None:
                 gate_violations.append(gate)
             new_ben = self._new_beneficiary.evaluate(
@@ -283,12 +401,24 @@ class Shield:
                 ctx.beneficiary,
                 ctx.amount,
                 ctx.currency,
-                claims,
+                None,
                 effective,
                 ctx.beneficiaries,
             )
             if new_ben is not None:
                 gate_violations.append(new_ben)
+
+            approval_notes: list[Violation] = []
+            if any(v.decision is Decision.HITL_REQUIRED for v in gate_violations):
+                cleared, approval_notes = self._resolve_step_up(
+                    ctx,
+                    claims,
+                    [v for v in gate_violations if v.decision is Decision.HITL_REQUIRED],
+                )
+                if cleared:
+                    gate_violations = [
+                        v for v in gate_violations if v.decision is not Decision.HITL_REQUIRED
+                    ]
 
             has_hitl_rejection = any(v.decision is Decision.HITL_REQUIRED for v in gate_violations)
 
@@ -313,6 +443,7 @@ class Shield:
                 sequence = self._sequence.observe(ctx.agent_run_id, ctx.tool_name, now)
             violations.extend(v for v in (probe, burst, structuring, sequence) if v is not None)
             violations.extend(gate_violations)
+            violations.extend(approval_notes)
 
         return self._finish(ctx, violations, now_dt, t0)
 
@@ -349,7 +480,20 @@ class Shield:
                             ctx.agent_run_id,
                             v.rule_id,
                         )
-        return Evaluation(decision, findings, (time.perf_counter_ns() - t0) // 1000)
+        request: ApprovalRequest | None = None
+        if decision is Decision.HITL_REQUIRED:
+            pending = [
+                v
+                for v in violations
+                if v.decision is Decision.HITL_REQUIRED and v.rule_id != R_APPROVAL_REJECTED
+            ]
+            request = build_request(
+                ctx,
+                tuple(v.rule_id for v in pending),
+                tuple(v.detail for v in pending),
+                now_dt,
+            )
+        return Evaluation(decision, findings, (time.perf_counter_ns() - t0) // 1000, request)
 
     @staticmethod
     def _to_finding(
@@ -381,7 +525,9 @@ class Shield:
             exc_cls: type[ShieldError] = HITLRequiredError
         else:
             exc_cls = _EXCEPTION_FOR_RULE.get(f.rule_id, ShieldError)
-        raise exc_cls(f"[{f.rule_id}] {f.detail}", f)
+        error = exc_cls(f"[{f.rule_id}] {f.detail}", f)
+        error.approval_request = evaluation.approval_request
+        raise error
 
     def _write_audit(
         self,
@@ -389,9 +535,10 @@ class Shield:
         evaluation: Evaluation,
         outcome: Literal["executed", "blocked", "tool_error"],
     ) -> AuditRecord | None:
-        redacted = ctx.model_copy(
-            update={"token": "sha256:" + hashlib.sha256(ctx.token.encode()).hexdigest()}
-        )
+        redactions = {"token": "sha256:" + hashlib.sha256(ctx.token.encode()).hexdigest()}
+        if ctx.approval is not None:
+            redactions["approval"] = "sha256:" + hashlib.sha256(ctx.approval.encode()).hexdigest()
+        redacted = ctx.model_copy(update=redactions)
         body = {
             "ts": self._clock().astimezone(UTC).isoformat(),
             "mode": self.policy.mode.value,

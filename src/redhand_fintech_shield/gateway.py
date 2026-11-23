@@ -217,6 +217,11 @@ class MCPGateway:
             finding = evaluation.primary_finding()
             rule_id = finding.rule_id if finding else "UNKNOWN"
             detail = finding.detail if finding else "Security policy violation"
+            approval_request = (
+                evaluation.approval_request.model_dump(mode="json")
+                if evaluation.approval_request is not None
+                else None
+            )
 
             if self.error_mode == "jsonrpc":
                 return self._format_error(
@@ -231,6 +236,7 @@ class MCPGateway:
                         "findings": [f.model_dump(mode="json") for f in evaluation.findings],
                         "finding": finding.model_dump(mode="json") if finding else None,
                         "latency_us": evaluation.latency_us,
+                        "approval_request": approval_request,
                     },
                 )
 
@@ -254,6 +260,7 @@ class MCPGateway:
                         "findings": [f.model_dump(mode="json") for f in evaluation.findings],
                         "finding": finding.model_dump(mode="json") if finding else None,
                         "latency_us": evaluation.latency_us,
+                        "approval_request": approval_request,
                     },
                 },
             }

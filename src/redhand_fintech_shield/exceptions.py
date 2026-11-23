@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .models import M42Finding
+    from .models import ApprovalRequest, M42Finding
 
 
 class ShieldError(Exception):
@@ -18,6 +18,8 @@ class ShieldError(Exception):
     def __init__(self, message: str, finding: M42Finding | None = None) -> None:
         super().__init__(message)
         self.finding = finding
+        # Set when the call needs a per-transaction approval: what a human is asked to sign.
+        self.approval_request: ApprovalRequest | None = None
 
 
 class PolicyLoadError(ShieldError):

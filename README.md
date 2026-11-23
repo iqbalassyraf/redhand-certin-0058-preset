@@ -51,7 +51,7 @@ tampering attempt being detected.
 | 1. Staging-to-prod token pivot | Token `env` claim must equal the call's `target_env` | `R1.staging_to_prod_pivot` |
 | 2. Micro-transaction probing | 2nd payment `<=` per-currency ceiling (USD 5.00, INR 450, MYR 25, SGD 7) in 60 s trips the breaker and quarantines | `R2.micro_tx_probe` |
 | 2. Enumeration bursts (CIAD-2026-0049) | More than 20 calls/s per (agent run, tool) | `R2.velocity_burst` |
-| 3. Settlement/disbursement abuse | Tool must be in the signed `allowed_tools`; amounts above USD 10,000 on protected tools need a `hitl_step_up` token | `R3.tool_not_pinned`, `R3.hitl_required` |
+| 3. Settlement/disbursement abuse | Tool must be in the signed `allowed_tools`; amounts above USD 10,000 on protected tools need a signed per-transaction approval (or the deprecated `hitl_step_up` token) | `R3.tool_not_pinned`, `R3.hitl_required` |
 | 2. Structuring (split payments) | Cumulative amount over 300 s on protected tools above the per-currency threshold, 2+ payments | `R2.structuring` |
 | 2. Recon then payout | 3+ recon calls (`list_merchants`, `get_account`, ...) within 30 s followed by a payment tool | `R2.recon_to_payment_sequence` |
 | 3. New beneficiary | Payee outside `known_beneficiaries` above USD 1,000 (INR 90,000, MYR 4,500, SGD 1,350) needs step-up or is blocked | `R3.new_beneficiary_high_value` |
@@ -153,6 +153,38 @@ A bound tool is judged by its bound fields only. A path that is missing, null or
 unresolved, which fails closed on protected tools; negative amounts in a bulk call are refused.
 The gateway and all adapters read `shield.policy.tool_bindings`; hand-built `ToolCallContext`
 objects (the decorator path) are unaffected.
+
+### Per-transaction approvals
+
+When a call needs step-up, the shield refuses it and hands you exactly what a human must approve.
+The approver signs that one transaction; the agent retries with the approval attached.
+
+```bash
+redhand-shield keygen keys --name approver     # approver key; keep it apart from the token key
+```
+
+```yaml
+approval:
+  verifier_public_key_path: keys/approver_ed25519_public.pem
+  nonce_journal_path: approval_nonces.jsonl
+  allow_legacy_step_up: false                  # stop honouring the run-wide hitl_step_up claim
+```
+
+```python
+try:
+    guarded_tool(ctx=ctx)
+except HITLRequiredError as exc:
+    request = exc.approval_request             # run, tool, amount, currency, payees, arguments digest
+    approval = ApprovalIssuer(approver_key).grant(request, approver="alice@bank", ttl_seconds=120)
+    # retry the same call with the approval: ToolCallContext(..., approval=approval)
+    # (MCP: _meta.approval; CLI: redhand-shield approve request.json --key ... --approver alice)
+```
+
+An approval is bound to the run, tool, environment, amount, currency, every payee and the exact
+arguments, expires in minutes and works once. A different amount, payee, tool or argument, an
+expired or forged approval, or a replay is refused and the call stays at "step-up required". An
+approval never clears a block. The old run-wide `hitl_step_up` token claim still works until you
+turn `allow_legacy_step_up` off, and every use is reported as a deprecation finding.
 
 ## MCP Gateway & Docker Quickstart
 

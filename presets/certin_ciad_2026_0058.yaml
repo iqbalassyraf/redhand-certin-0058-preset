@@ -121,6 +121,19 @@ tool_bindings:
       currency: currency
       beneficiary: beneficiary
 
+# --- Per-transaction step-up: signed, single-use approvals (replaces the run-wide hitl_step_up) ---
+# An approval names the run, tool, environment, amount, currency, every payee and a digest of the
+# exact arguments, expires within max_ttl_seconds and can be spent once. It is signed by an
+# APPROVER key that must differ from the agent-token key. Generate one with
+# `redhand-shield keygen --name approver`, then set verifier_public_key_path.
+approval:
+  issuer: redhand-approver
+  max_ttl_seconds: 300
+  # verifier_public_key_path: keys/approver_ed25519_public.pem
+  nonce_journal_path: approval_nonces.jsonl   # spent nonces survive a restart
+  allow_legacy_step_up: true      # DEPRECATED run-wide hitl_step_up token claim; set false once
+                                  # your approvers issue per-transaction approvals
+
 # --- Containment & evidence (CIAD-2026-0049: tamper-resistant logs, retain 180+ days) ---
 quarantine_on_block: true
 quarantine_journal_path: quarantine.jsonl   # replayed on startup so a crash does not free an agent

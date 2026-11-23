@@ -27,16 +27,16 @@ extensibility protocols (`protocols.py`), out-of-process MCP Gateway (`MCPGatewa
 multi-cloud and framework adapters (`BedrockConverseAdapter`, `AzureOpenAIAdapter`,
 `RedHandSemanticKernelFilter`, `GoogleGenAIAdapter`, `RedHandGuardedTool`, `GenericToolRunner`),
 production multi-stage `Dockerfile`, automated latency benchmark suite (`benchmarks/bench_latency.py`),
-a CLI, a terminal attack simulation, and 325 tests at 99% coverage. Phase 3 M1 added three
+a CLI, a terminal attack simulation, and 372 tests at 99% coverage. Phase 3 M1 added three
 deterministic detectors: split-transaction structuring, new-beneficiary high value, and the
 recon-to-payment sequence rule; M2 added per-tool argument bindings so those rules see the field
-each tool really pays from. With all rules on, the in-process p99 measured 0.44 ms in the
-benchmark harness (sandbox run). Measured via `benchmarks/bench_latency.py` before M1:
+each tool really pays from; M3 added signed, single-use, per-transaction approvals. With all rules
+on, the in-process p99 measured 0.33 ms in the benchmark harness (sandbox run). Measured via `benchmarks/bench_latency.py` before M1:
 a full in-process guarded call has a p50 of 0.20 ms and p99 of 0.27 ms, and an out-of-process
 MCP Gateway `tools/call` roundtrip has a p50 of 0.37 ms and p99 of 0.54 ms.
 
-Known limits this roadmap exists to address: state is per process; step-up approval is a
-run-wide flag rather than per transaction; the audit log is tamper-evident but not tamper-proof;
+Known limits this roadmap exists to address: state is per process; the run-wide `hitl_step_up` flag
+is deprecated but still honoured by default; the audit log is tamper-evident but not tamper-proof;
 tool pinning covers names, not tool code.
 
 ## Phase 1: Foundations (no behaviour changes)
@@ -98,12 +98,24 @@ New deterministic rules and stronger approval.
     already fail closed on protected tools.
   - One shared `context.extract_tool_call_context` replaces the two copies and every adapter and
     the gateway pass `shield.policy.tool_bindings` to it.
-- [ ] **M3: Per-transaction step-up.** Replaces the run-wide `hitl_step_up` flag.
-  - An `ApprovalRequest` model (id, run, tool, amount, currency, beneficiary, arguments hash,
-    expiry) that the host application can show to a human.
-  - A detached Ed25519 signature over that request plus a nonce; nonces are single use and live
-    in a replay store behind a protocol.
-  - `hitl_step_up` stays only behind a deprecation flag and is removed before 1.0.
+- [x] **M3: Per-transaction step-up.** Replaces the run-wide `hitl_step_up` flag as the way to
+  satisfy a HITL requirement.
+  - The shield attaches an `ApprovalRequest` (id, run, tool, environment, amount, currency,
+    every payee, a digest of the exact arguments, the rules that fired) to the exception, the
+    gateway response and the evaluation, so the host application can show it to a human.
+  - An approval is an Ed25519-signed compact JWS (`ApprovalIssuer`, `redhand-shield approve`)
+    that binds all of those fields, expires within `approval.max_ttl_seconds` (default 300) and
+    carries a nonce. Verification (`ApprovalVerifier`) checks signature, `typ`, issuer, lifetime
+    and every binding; only then is the nonce spent. A rejected attempt does not burn it.
+  - Nonces are single use behind the `NonceStore` protocol; `NonceRegistry` is the default, with
+    an optional journal so a restart keeps them spent, and it fails closed when full of live
+    nonces. Concurrent use of one approval succeeds exactly once.
+  - The approver key must differ from the agent-token key (the shield refuses to start
+    otherwise), so whoever mints agent tokens cannot approve their own runs.
+  - An approval never clears a BLOCK, and a call that needs no step-up ignores it.
+  - `hitl_step_up` still works while `approval.allow_legacy_step_up` is true, but each use is
+    reported as a `legacy_run_wide_step_up` finding; a rejected approval never falls back to it.
+    The flag will be removed before 1.0.
 - [ ] **M4: Harder aggregation.** Closes the ways the M1 detectors can be sidestepped.
   - Structuring per beneficiary and per subject, across runs, not only per (run, currency).
   - A rolling 24-hour cumulative cap per run and per subject.

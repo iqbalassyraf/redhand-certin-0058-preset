@@ -39,6 +39,8 @@ def format_violation_payload(
     }
     if evaluation is not None:
         payload["latency_us"] = evaluation.latency_us
+        if evaluation.approval_request is not None:
+            payload["approval_request"] = evaluation.approval_request.model_dump(mode="json")
     return payload
 
 

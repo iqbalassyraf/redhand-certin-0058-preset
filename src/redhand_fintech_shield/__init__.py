@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from . import adapters
+from .approvals import ApprovalIssuer, ApprovalVerifier, NonceRegistry
 from .audit import AuditLog, ChainVerificationReport, HashChainedAuditLog
 from .context import extract_tool_call_context
 from .crypto import AgentTokenIssuer, AgentTokenVerifier
@@ -28,6 +29,8 @@ from .exceptions import (
 from .gateway import MCPGateway, ToolDefinition
 from .interceptor import Evaluation, Shield, redhand_guard
 from .models import (
+    ApprovalPolicy,
+    ApprovalRequest,
     AuditRecord,
     Decision,
     Env,
@@ -43,6 +46,7 @@ from .protocols import (
     AuditLogBackend,
     Clock,
     MonotonicClock,
+    NonceStore,
     NullTelemetrySink,
     QuarantineBackend,
     TelemetrySink,
@@ -77,6 +81,10 @@ __all__ = [
     "AgentQuarantinedError",
     "AgentTokenIssuer",
     "AgentTokenVerifier",
+    "ApprovalIssuer",
+    "ApprovalPolicy",
+    "ApprovalRequest",
+    "ApprovalVerifier",
     "AuditChainError",
     "AuditLog",
     "AuditLogBackend",
@@ -95,6 +103,8 @@ __all__ = [
     "Mode",
     "MonotonicClock",
     "NewBeneficiaryError",
+    "NonceRegistry",
+    "NonceStore",
     "NullTelemetrySink",
     "PolicyConfig",
     "PolicyLoadError",

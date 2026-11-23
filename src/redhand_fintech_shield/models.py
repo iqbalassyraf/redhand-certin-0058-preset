@@ -292,6 +292,69 @@ class ToolBindingsPolicy(BaseModel):
     )
 
 
+class ApprovalPolicy(BaseModel):
+    """Per-transaction step-up: signed, single-use human approvals bound to one transaction."""
+
+    model_config = _STRICT
+
+    verifier_public_key_path: Path | None = Field(
+        default=None,
+        description="Approver's Ed25519 public key. Must differ from the agent-token issuer's.",
+    )
+    issuer: NonEmptyStr = "redhand-approver"
+    max_ttl_seconds: int = Field(default=300, ge=1, le=3600)
+    nonce_journal_path: Path | None = Field(
+        default=None,
+        description="Journal of spent nonces, replayed on startup so a restart keeps them spent.",
+    )
+    max_nonces: int = Field(default=100_000, ge=1)
+    allow_legacy_step_up: bool = Field(
+        default=True,
+        description=(
+            "DEPRECATED. Honour the run-wide hitl_step_up token claim as a step-up. Each use is "
+            "reported as a finding. Set false once approvers issue per-transaction approvals."
+        ),
+    )
+
+
+class ApprovalRequest(BaseModel):
+    """What a human approver is asked to sign. Built by the shield, never by the agent."""
+
+    model_config = _STRICT
+
+    request_id: NonEmptyStr
+    agent_run_id: NonEmptyStr
+    tool_name: NonEmptyStr
+    target_env: Env
+    amount: Decimal | None = None
+    currency: CurrencyCode | None = None
+    beneficiaries: tuple[NonEmptyStr, ...] = ()
+    arguments_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    reasons: tuple[str, ...] = Field(default=(), description="Rule ids that require step-up.")
+    details: tuple[str, ...] = ()
+    requested_at: datetime
+
+
+class ApprovalClaims(BaseModel):
+    """Verified claims of a signed approval. Everything but ``sub``/``nonce``/times is a binding."""
+
+    model_config = _STRICT
+
+    iss: str
+    sub: NonEmptyStr  # the approving human or system
+    request_id: str
+    agent_run_id: str
+    tool_name: str
+    target_env: Env
+    amount: str | None = None
+    currency: str | None = None
+    beneficiaries: tuple[str, ...] = ()
+    arguments_digest: str | None = None
+    nonce: NonEmptyStr
+    iat: int
+    exp: int
+
+
 class PolicyConfig(BaseModel):
     """Declarative policy; loaded from ``presets/certin_ciad_2026_0058.yaml``."""
 
@@ -310,6 +373,7 @@ class PolicyConfig(BaseModel):
     new_beneficiary: NewBeneficiaryPolicy = Field(default_factory=NewBeneficiaryPolicy)
     sequence: SequencePolicy = Field(default_factory=SequencePolicy)
     tool_bindings: ToolBindingsPolicy = Field(default_factory=ToolBindingsPolicy)
+    approval: ApprovalPolicy = Field(default_factory=ApprovalPolicy)
     quarantine_on_block: bool = True
     audit_path: Path = Path("audit_trail.jsonl")
     audit_fsync: bool = False
@@ -366,6 +430,14 @@ class ToolCallContext(BaseModel):
     beneficiaries: tuple[NonEmptyStr, ...] = Field(
         default=(),
         description="All distinct payees of a bulk call; ``beneficiary`` is the first of them.",
+    )
+    approval: str | None = Field(
+        default=None, description="Signed per-transaction approval presented with the call."
+    )
+    arguments_digest: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+        description="SHA-256 of the canonical tool arguments; what an approval binds to.",
     )
     timestamp: datetime | None = Field(
         default=None,

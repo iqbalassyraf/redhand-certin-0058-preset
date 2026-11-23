@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
@@ -115,6 +116,12 @@ class AgentTokenVerifier:
         self._issuer = issuer
         self._max_ttl = max_ttl_seconds
         self._clock = clock
+
+    @property
+    def key_fingerprint(self) -> str:
+        """SHA-256 of the raw public key, used to keep token and approval keys separate."""
+        raw = self._key.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+        return hashlib.sha256(raw).hexdigest()
 
     def verify(self, token: str) -> TokenClaims:
         """Return verified claims or raise :class:`TokenInvalidError`.

@@ -70,6 +70,9 @@ def policy(tmp_path: Path) -> PolicyConfig:
         update={
             "audit_path": tmp_path / "audit_trail.jsonl",
             "quarantine_journal_path": tmp_path / "quarantine.jsonl",
+            "approval": base.approval.model_copy(
+                update={"nonce_journal_path": tmp_path / "approval_nonces.jsonl"}
+            ),
         }
     )
 

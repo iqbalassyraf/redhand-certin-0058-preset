@@ -9,7 +9,12 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from pydantic import ValidationError
+
 from . import Env, MCPGateway, Mode, Shield, __version__, default_preset_path, load_policy
+from .approvals import ApprovalIssuer
 from .audit import HashChainedAuditLog
 from .crypto import (
     AgentTokenIssuer,
@@ -19,12 +24,13 @@ from .crypto import (
     public_key_to_pem,
 )
 from .exceptions import PolicyLoadError, ShieldError
+from .models import ApprovalRequest
 
 
-def _keygen(out: Path) -> int:
+def _keygen(out: Path, name: str = "redhand") -> int:
     out.mkdir(parents=True, exist_ok=True)
     private, public = AgentTokenIssuer.generate_keypair()
-    priv_path, pub_path = out / "redhand_ed25519_private.pem", out / "redhand_ed25519_public.pem"
+    priv_path, pub_path = out / f"{name}_ed25519_private.pem", out / f"{name}_ed25519_public.pem"
     for path in (priv_path, pub_path):
         if path.exists():
             print(f"refusing to overwrite {path}", file=sys.stderr)
@@ -34,6 +40,25 @@ def _keygen(out: Path) -> int:
     pub_path.write_bytes(public_key_to_pem(public))
     print(f"private key (signer only, keep secret): {priv_path}")
     print(f"public key  (set policy.verifier_public_key_path): {pub_path}")
+    if name != "redhand":
+        print("for an approver key, set policy.approval.verifier_public_key_path instead")
+    return 0
+
+
+def _approve(args: argparse.Namespace) -> int:
+    """Sign an approval for one ApprovalRequest (JSON from the shield) and print it."""
+    try:
+        request = ApprovalRequest.model_validate_json(args.request.read_text(encoding="utf-8"))
+        key = serialization.load_pem_private_key(args.key.read_bytes(), password=None)
+    except (OSError, ValueError, ValidationError) as exc:
+        raise PolicyLoadError(f"cannot read approval request or key: {exc}") from exc
+    if not isinstance(key, Ed25519PrivateKey):
+        raise PolicyLoadError(f"{args.key} is not an Ed25519 private key")
+    print(
+        ApprovalIssuer(key, args.issuer).grant(
+            request, approver=args.approver, ttl_seconds=args.ttl
+        )
+    )
     return 0
 
 
@@ -88,6 +113,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     kg = sub.add_parser("keygen", help="generate an Ed25519 signing keypair (PEM)")
     kg.add_argument("out", type=Path, nargs="?", default=Path("keys"))
+    kg.add_argument("--name", default="redhand", help="file prefix, e.g. 'approver' for approvals")
+    ap_ = sub.add_parser("approve", help="sign a per-transaction approval for an approval request")
+    ap_.add_argument("request", type=Path, help="ApprovalRequest JSON (from the shield's response)")
+    ap_.add_argument("--key", type=Path, required=True, help="approver Ed25519 private key PEM")
+    ap_.add_argument(
+        "--approver", required=True, help="who is approving (recorded in the audit log)"
+    )
+    ap_.add_argument("--ttl", type=int, default=120, help="approval lifetime in seconds")
+    ap_.add_argument("--issuer", default="redhand-approver")
     va = sub.add_parser("verify-audit", help="verify audit hash chain(s), oldest file first")
     va.add_argument("files", type=Path, nargs="+")
     va.add_argument("--expected-tail", help="externally anchored tail hash (detects truncation)")
@@ -121,7 +155,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         if args.cmd == "keygen":
-            return _keygen(args.out)
+            return _keygen(args.out, args.name)
+        if args.cmd == "approve":
+            return _approve(args)
         if args.cmd == "verify-audit":
             return _verify(args.files, args.expected_tail)
         if args.cmd == "gateway":

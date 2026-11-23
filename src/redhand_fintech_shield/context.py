@@ -11,6 +11,7 @@ from typing import Any
 
 import jwt
 
+from .approvals import arguments_digest
 from .bindings import resolve_money_fields
 from .models import Env, ToolBindingsPolicy, ToolCallContext
 
@@ -20,7 +21,8 @@ def sanitize_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
     return {
         k: v
         for k, v in arguments.items()
-        if k not in ("_meta", "token", "_token", "target_env", "agent_run_id")
+        if k
+        not in ("_meta", "token", "_token", "approval", "_approval", "target_env", "agent_run_id")
     }
 
 
@@ -50,6 +52,15 @@ def extract_tool_call_context(
         or os.environ.get("REDHAND_AGENT_TOKEN", "")
     )
     token = str(token_candidate).strip() if token_candidate is not None else ""
+
+    # 1b. Per-transaction approval (optional, travels like the token and never reaches the tool)
+    approval_candidate = (
+        meta_dict.get("approval")
+        or arg_meta.get("approval")
+        or arguments.get("approval")
+        or arguments.get("_approval")
+    )
+    approval = str(approval_candidate).strip() if approval_candidate is not None else ""
 
     # 2. Agent run ID extraction
     run_id_candidate = (
@@ -87,7 +98,9 @@ def extract_tool_call_context(
     metadata: dict[str, str] = {}
     for source in (meta_dict, arg_meta):
         for k, v in source.items():
-            if k not in ("token", "agent_run_id", "target_env") and isinstance(v, (str, int, bool)):
+            if k not in ("token", "approval", "agent_run_id", "target_env") and isinstance(
+                v, (str, int, bool)
+            ):
                 metadata[str(k)] = str(v)
     if money.notes:
         metadata["binding_note"] = "; ".join(money.notes)
@@ -97,6 +110,8 @@ def extract_tool_call_context(
         tool_name=tool_name,
         target_env=target_env,
         token=token,
+        approval=approval or None,
+        arguments_digest=arguments_digest(sanitize_arguments(arguments)),
         amount=money.amount,  # type: ignore[arg-type]
         currency=money.currency,
         beneficiary=money.beneficiary,
