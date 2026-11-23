@@ -27,7 +27,14 @@ from .exceptions import PolicyLoadError
 from .models import PolicyConfig, PolicyProvenance
 
 META_KEYS = ("extends", "loosen", "locked")
-MAX_DEPTH = 4
+MAX_DEPTH = 4  # extends-chain depth
+
+# Limits on a single policy document. A real policy is a few kilobytes; these exist so a crafted
+# file (a huge scalar, deep nesting, or an alias "billion laughs" that expands exponentially when
+# copied or printed) is refused in milliseconds instead of burning CPU.
+MAX_POLICY_BYTES = 1_048_576
+MAX_NODES = 100_000
+MAX_NESTING = 64
 _PRESET_ID = re.compile(r"^[A-Za-z0-9_-]+$")
 _SEVERITY_RANK = {"low": 0, "medium": 1, "high": 2, "critical": 3}
 _INF = float("inf")
@@ -316,14 +323,61 @@ class _Resolved:
     loosened: tuple[str, ...]
 
 
+def _prescan(text: str, path: Path) -> None:
+    """Reject runaway flow nesting (``[[[[...``) before the YAML parser spends a second on it."""
+    depth = 0
+    for ch in text:
+        if ch in "[{":
+            depth += 1
+            if depth > MAX_NESTING:
+                raise PolicyLoadError(f"policy {path} is nested deeper than {MAX_NESTING} levels")
+        elif ch in "]}" and depth:
+            depth -= 1
+
+
+def _check_shape(raw: Any, path: Path) -> None:
+    """Refuse a document that is too deep, or that expands to too many nodes.
+
+    Walks the document the way a copy or a validation would, counting a shared (aliased) node
+    every time it is reached, so an alias bomb and a self-referential alias both hit the limit.
+    """
+    nodes = 0
+    stack: list[tuple[Any, int]] = [(raw, 0)]
+    while stack:
+        node, depth = stack.pop()
+        nodes += 1
+        if nodes > MAX_NODES:
+            raise PolicyLoadError(
+                f"policy {path} expands to more than {MAX_NODES} nodes (an alias bomb?)"
+            )
+        if depth > MAX_NESTING:
+            raise PolicyLoadError(f"policy {path} is nested deeper than {MAX_NESTING} levels")
+        if isinstance(node, dict):
+            stack.extend((v, depth + 1) for v in node.values())
+            stack.extend((k, depth + 1) for k in node)
+        elif isinstance(node, list | tuple | set | frozenset):
+            stack.extend((v, depth + 1) for v in node)
+
+
 def _read(path: Path) -> tuple[dict[str, Any], str]:
     try:
         blob = path.read_bytes()
-        raw = yaml.safe_load(blob.decode("utf-8"))
-    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        if len(blob) > MAX_POLICY_BYTES:
+            raise PolicyLoadError(
+                f"policy {path} is larger than {MAX_POLICY_BYTES} bytes; a policy is a few KB"
+            )
+        text = blob.decode("utf-8")
+        _prescan(text, path)
+        raw = yaml.safe_load(text)
+    except PolicyLoadError:
+        raise
+    except (OSError, ValueError, RecursionError, OverflowError, yaml.YAMLError) as exc:
+        # ValueError covers bad UTF-8 and dates like 2026-13-45 raised by the YAML constructor;
+        # RecursionError covers pathologically nested documents.
         raise PolicyLoadError(f"cannot read policy {path}: {exc}") from exc
     if not isinstance(raw, dict):
         raise PolicyLoadError(f"policy {path} must be a YAML mapping")
+    _check_shape(raw, path)
     return raw, hashlib.sha256(blob).hexdigest()
 
 
@@ -405,7 +459,10 @@ def _resolve(path: Path, seen: tuple[Path, ...], depth: int) -> _Resolved:
 
 def load_policy_file(path: Path) -> PolicyConfig:
     """Load a policy file, resolving ``extends`` and enforcing tighten-only overlays."""
-    resolved = _resolve(Path(path), (), 0)
+    try:
+        resolved = _resolve(Path(path), (), 0)
+    except RecursionError as exc:
+        raise PolicyLoadError(f"policy {path} is nested too deeply to load") from exc
     provenance = PolicyProvenance(
         chain=resolved.chain, loosened=resolved.loosened, locked=resolved.locked
     )

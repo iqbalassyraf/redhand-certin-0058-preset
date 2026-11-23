@@ -60,13 +60,23 @@ off_hours:
   weekend_days: [5, 6]            # Saturday, Sunday
   tighten_factor: 0.5             # halves probe/velocity limits and HITL thresholds
   mandatory_hitl: true            # protected tools always need HITL off-hours
-  # Fixed-date Indian public holidays only. Movable festivals (Diwali, Holi, Eid, ...) and
-  # state/bank holidays differ every year: the OPERATOR must add them.
   holidays:
-    - 2026-01-26                  # Republic Day
-    - 2026-08-15                  # Independence Day
-    - 2026-10-02                  # Gandhi Jayanti
-    - 2026-12-25                  # Christmas Day
+    # Fixed-date national holidays for 2026-2028 (Republic Day, Independence Day, Gandhi Jayanti,
+    # Christmas Day). Movable festivals (Diwali, Holi, Eid, ...) and state/bank holidays differ
+    # every year and are OPERATOR-SUPPLIED. The shield warns at startup, and `redhand-shield
+    # doctor` reports, when the current or next year has no entry.
+    - 2026-01-26
+    - 2026-08-15
+    - 2026-10-02
+    - 2026-12-25
+    - 2027-01-26
+    - 2027-08-15
+    - 2027-10-02
+    - 2027-12-25
+    - 2028-01-26
+    - 2028-08-15
+    - 2028-10-02
+    - 2028-12-25
 
 # --- Stage 2: split-transaction structuring (smurfing) across protected endpoints ---
 # Prevents an attacker from splitting a large disbursement into sub-HITL chunks inside 5 minutes.

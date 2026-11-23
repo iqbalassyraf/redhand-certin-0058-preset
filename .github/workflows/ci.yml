@@ -66,6 +66,23 @@ jobs:
           REDHAND_LATENCY_BUDGET_MS: "5.0"
         run: uv run --python ${{ matrix.python-version }} pytest
 
+      - name: Replay the attack and benign corpus (per-rule detection and false-positive numbers)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        run: |
+          uv run --python ${{ matrix.python-version }} redhand-shield replay \
+            --json replay-results.json --markdown replay-results.md
+          cat replay-results.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload replay results
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: replay-results
+          path: |
+            replay-results.json
+            replay-results.md
+          if-no-files-found: error
+
   smoke-test:
     name: wheel-build-and-smoke-test
     needs: test
@@ -130,6 +147,8 @@ jobs:
           /tmp/smoke-env/bin/redhand-shield manifest > /dev/null
           /tmp/smoke-env/bin/redhand-shield schema --check
           /tmp/smoke-env/bin/redhand-shield fingerprint
+          /tmp/smoke-env/bin/redhand-shield replay > /dev/null
+          /tmp/smoke-env/bin/redhand-shield doctor > /dev/null
           /tmp/smoke-env/bin/python -c "
           from importlib.metadata import entry_points
           [ep] = [e for e in entry_points(group='redhand.presets') if e.name == 'certin_ciad_2026_0058']

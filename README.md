@@ -247,6 +247,38 @@ expired or forged approval, or a replay is refused and the call stays at "step-u
 approval never clears a block. The old run-wide `hitl_step_up` token claim still works until you
 turn `allow_legacy_step_up` off, and every use is reported as a deprecation finding.
 
+## Proof: replay corpus, fuzzing and evidence reports
+
+Claims about the preset are checkable, and the checks run in CI.
+
+* **Replay corpus.** [corpus/](corpus) holds 108 synthetic traces: attacks in the shape of the
+  CRAFTY FALCON chain (credential pivot, probing, enumeration, split payments, new payees, off-hours,
+  slow drain, token and approval abuse, hostile input) and ordinary traffic.
+  `redhand-shield replay` runs them through the real shield and prints, per rule, the detection rate
+  on the attacks that should trip it and the false-positive rate on benign traffic
+  ([docs/detection-results.md](docs/detection-results.md)). On corpus 1.0.0: 73 of 73 catchable
+  attacks stopped, 0 of 26 benign scenarios wrongly flagged. **The corpus is synthetic and written by
+  the people who wrote the rules**, so this is a regression check, not a measure of production
+  performance. The limits are in the corpus too: five attacks the preset is documented *not* to catch
+  (a single micro-payment, an unbound tool, slow payments to a vetted payee, a stolen valid token, a
+  payment just under a threshold) and four benign cases it flags by design (two tips inside a minute,
+  a dashboard polling too fast, a Saturday settlement). The harness is itself tested: switch a rule
+  off, shadow it, loosen a threshold or tighten a ceiling and exactly the right scenarios fail.
+* **Fuzzing.** Seeded, stdlib-only fuzzers (`tests/test_fuzz.py`; `REDHAND_FUZZ_ITERATIONS` runs them
+  longer) attack the token and approval parsers, the policy loader, the audit verifier, the payee
+  normaliser, the binding resolver and the gateway's JSON-RPC handler. The properties: a parser only
+  ever fails in its documented way, and nothing that should be refused is accepted (a mutated token, a
+  tampered log). They found and fixed real problems, listed in the changelog.
+* **Evidence report.** `redhand-shield report audit_trail.jsonl --out report.html` verifies the hash
+  chain and writes one self-contained page: the chain result, a table from each advisory stage to the
+  control that addresses it and the evidence the log holds, and a timeline of what was blocked. It has
+  no scripts and no external requests, renders offline, is deterministic, and escapes everything it
+  reads from the log. "No events logged" means nothing triggered; it is not a statement of compliance.
+* **Doctor.** `redhand-shield doctor` lists configuration warnings (an exhausted holiday calendar, an
+  expiring exemption or key, no audience, a rule in shadow, the deprecated step-up claim). The preset
+  ships fixed-date holidays for 2026 to 2028 only; movable festivals, bank holidays and exchange
+  rates are operator-supplied.
+
 ## Integrating with a host application
 
 Everything a host application needs to consume the preset is machine-readable and versioned.
@@ -524,7 +556,8 @@ src/redhand_fintech_shield/          models, crypto, detectors, window store, au
 benchmarks/bench_latency.py          reproducible latency benchmark suite (core, gateway, adapters)
 Dockerfile                           multi-stage production container (non-root UID 10001)
 examples/                            attack simulation and an example policy overlay
-tests/                               unit, negative, concurrency and contract tests; every
+corpus/                              synthetic attack and benign traces, policy and generator
+tests/                               unit, negative, concurrency, contract and fuzz tests; every
                                      detector test also runs against an independent window store
 ```
 

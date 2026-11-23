@@ -19,7 +19,7 @@ benchmark harness so anyone can reproduce them.
   are expected to live in separate packages built on tagged releases of this one.
 - **No platform code in the core.** The core exposes interfaces. Platform adapters live elsewhere.
 
-## Where we are (Phases 1 to 3.5 complete)
+## Where we are (Phases 1 to 4 complete)
 
 In-process decorator, Ed25519 per-run tokens, sliding-window detectors, HITL gate, off-hours
 tightening, journaled quarantine, hash-chained audit log with rotation and an offline verifier,
@@ -27,13 +27,14 @@ extensibility protocols (`protocols.py`), out-of-process MCP Gateway (`MCPGatewa
 multi-cloud and framework adapters (`BedrockConverseAdapter`, `AzureOpenAIAdapter`,
 `RedHandSemanticKernelFilter`, `GoogleGenAIAdapter`, `RedHandGuardedTool`, `GenericToolRunner`),
 production multi-stage `Dockerfile`, automated latency benchmark suite (`benchmarks/bench_latency.py`),
-a CLI, a terminal attack simulation, and 716 tests at 99% coverage. Phase 3 M1 added three
+a CLI, a terminal attack simulation, and 828 tests at 99% coverage. Phase 3 M1 added three
 deterministic detectors: split-transaction structuring, new-beneficiary high value, and the
 recon-to-payment sequence rule; M2 added per-tool argument bindings so those rules see the field
 each tool really pays from; M3 added signed, single-use, per-transaction approvals; M4 closed the detector
 bypasses (scopes across runs, caps, tool rotation, payee spelling, currency splitting); M5 added
 overlays, shadow rules and exemptions; Phase 3.5 added the integration contract (manifest,
-schemas, policy fingerprint, token rotation and revocation, window-store seam, stable API). With every
+schemas, policy fingerprint, token rotation and revocation, window-store seam, stable API); Phase 4
+added the replay corpus and harness, fuzzing, `doctor` and the evidence report. With every
 rule exercised on a protected tool (`decision_core_protected`) the in-process p99 measured about
 0.35 ms (p50 0.18 ms), and with a layered policy (shadow rule, severity override and an active
 exemption, `decision_core_layered`) about 0.6 ms, in the benchmark harness (sandbox run). Measured via `benchmarks/bench_latency.py` before M1:
@@ -213,23 +214,43 @@ the in-process p99 stays under 2 ms (protected tool about 0.3 to 0.4 ms, layered
 
 Make every claim checkable.
 
-- **Replay corpus** of CRAFTY FALCON-style traces plus benign traffic, with a harness that
-  reports detection rate and false-positive rate per rule, versioned with the corpus.
-- **Property-based tests and fuzzing** for the token parser, policy loader and audit verifier.
-- **Bypass cases in the corpus:** cross-currency splitting, tool rotation, differently named
-  arguments and bulk-payout lists, each with the expected verdict.
-- **Fuzzing of the binding resolver and the beneficiary normaliser**, alongside the token
-  parser, policy loader and audit verifier.
-- **Versioned calendar data.** Holidays move into a data file per year, with a startup
-  warning when the current or next year is missing. Bank holidays and a wider currency table
-  are listed as operator-supplied, not shipped as fact.
-- **`report` command** that turns an audit log into a self-contained HTML report mapping each
-  advisory requirement to the control and the logged evidence, with the chain-verification result
-  and a timeline of blocked attacks.
+- [x] **Replay corpus** (`corpus/`, `redhand-shield replay`): 108 synthetic scenarios (73 attacks
+  the preset should catch, 5 documented gaps, 26 benign, 4 documented false positives) replayed
+  through the real shield on fake clocks, with per-rule detection rate and false-positive rate,
+  versioned with the corpus (`corpus_version`, `corpus_sha256`, policy fingerprint in every
+  result). The corpus policy is an ordinary overlay, so it exercises the M5 machinery. CI runs it
+  on one leg, publishes the table to the job summary and uploads the JSON. The harness is
+  mutation-tested: weaken a rule and exactly its scenarios fail.
+- [x] **Bypass cases in the corpus:** cross-currency splitting, run rotation, payee spelling,
+  tool rotation, renamed arguments (bound and unbound), bulk lists (sum, unknown payee, negative
+  netting, mixed currency, oversize), each with its expected verdict.
+- [x] **Fuzzing and property tests** for the token and approval parsers, the policy loader, the
+  audit verifier, the binding resolver, the beneficiary normaliser and the gateway handler. Seeded
+  and stdlib-only: **changed from the draft**, which implied a property-testing library; adding one
+  would change `uv.lock` for little gain, so the generators are small and deterministic instead.
+- [x] **Versioned calendar data:** **changed from the draft**. Rather than separate per-year data
+  files, which would need a file loader and fingerprint handling, the preset lists fixed-date
+  holidays for 2026 to 2028 explicitly, and the shield warns at startup (and `redhand-shield doctor`
+  reports) when the current or next year has no entry. Movable festivals, bank holidays and a wider
+  currency table are operator-supplied and stated as such.
+- [x] **`report` command:** a self-contained, deterministic, offline HTML report mapping each
+  advisory stage to its control and logged evidence, with the chain-verification result, an
+  externally anchored tail check and a timeline of blocked and held calls.
+
+**Findings from fuzzing, all fixed:** the policy loader raised raw `RecursionError` and `ValueError`
+instead of `PolicyLoadError` and could be made to spend about 40 seconds on a 400-byte alias bomb
+(now: size, nesting and expansion limits checked in milliseconds); the audit verifier crashed on
+invalid UTF-8 and on hostile continuation headers instead of reporting a broken chain; and the payee
+normaliser was not a fixed point, so a control character between a letter and its accent could make
+one visible payee appear as two.
 
 **Done when:** the harness runs in CI and publishes per-rule numbers; fuzzing finds no crashes or
 verifier bypasses on the supported inputs; the report renders from the demo's audit log offline.
 The corpus is synthetic, and its limits are stated beside the numbers.
+**Status: Complete** (`tests/test_replay.py`, `test_fuzz.py`, `test_report.py`, `test_diagnostics.py`;
+the corpus, replay numbers and report also verified from an installed wheel). "No findings" from
+fuzzing is evidence for the inputs tried, not a proof: run it longer with
+`REDHAND_FUZZ_ITERATIONS`.
 
 ## Phase 5: Launch
 

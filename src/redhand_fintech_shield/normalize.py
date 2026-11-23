@@ -30,8 +30,7 @@ def _iban_checksum_ok(iban: str) -> bool:
     return int(digits) % 97 == 1
 
 
-def canonical_beneficiary(raw: str) -> str:
-    """Return the canonical form of a payee identifier ('' if nothing usable remains)."""
+def _canonical_once(raw: str) -> str:
     text = unicodedata.normalize("NFKC", raw)
     cleaned: list[str] = []
     for ch in text:
@@ -50,4 +49,21 @@ def canonical_beneficiary(raw: str) -> str:
         return f"{m.group(1).upper()}:{m.group(2)}"
     if _VPA.match(text):
         return text.casefold()
+    return text
+
+
+def canonical_beneficiary(raw: str) -> str:
+    """Return the canonical form of a payee identifier ('' if nothing usable remains).
+
+    The form is a fixed point: cleaning can expose characters that Unicode composition then
+    merges (a control character between a letter and its accent, for example), so the steps are
+    repeated until the text stops changing. Without that, one visible payee could have two
+    canonical spellings, one before and one after a second normalisation.
+    """
+    text = raw
+    for _ in range(6):
+        nxt = _canonical_once(text)
+        if nxt == text:
+            return text
+        text = nxt
     return text

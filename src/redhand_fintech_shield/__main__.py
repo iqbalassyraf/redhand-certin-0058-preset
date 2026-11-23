@@ -162,6 +162,59 @@ def _api(out: Path | None, check: bool) -> int:
     return 0
 
 
+def _replay(corpus_dir: Path | None, json_out: Path | None, md_out: Path | None) -> int:
+    from .replay import load_corpus, render_markdown, run_corpus
+
+    corpus = load_corpus(corpus_dir)
+    policy = load_policy(corpus.policy_path)
+    report = run_corpus(corpus, policy, __version__)
+    if json_out is not None:
+        json_out.write_text(report.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    if md_out is not None:
+        md_out.write_text(render_markdown(report), encoding="utf-8", newline="\n")
+    print(
+        f"corpus {report.corpus_version}: {report.scenarios} scenarios | attacks stopped "
+        f"{report.attacks_stopped}/{report.attacks_detectable} | benign flagged "
+        f"{report.benign_flagged}/{report.benign_checked} | documented gaps "
+        f"{len(report.known_gaps)}, documented false positives "
+        f"{len(report.documented_false_positives)}"
+    )
+    for row in report.per_rule:
+        recall = "n/a" if row.recall is None else f"{row.recall * 100:.0f}%"
+        print(
+            f"  {row.rule:48} detected {row.attacks_detected}/{row.attacks_expecting} ({recall})"
+            f"  benign flagged {row.benign_scenarios_flagged}"
+        )
+    for failure in report.failures:
+        print(f"FAIL {failure}", file=sys.stderr)
+    return 1 if report.failures else 0
+
+
+def _report(args: argparse.Namespace) -> int:
+    from .report import render_html
+
+    policy = load_policy(args.policy) if args.policy else None
+    page = render_html(args.files, policy=policy, expected_tail=args.expect_tail, title=args.title)
+    args.out.write_text(page, encoding="utf-8", newline="\n")
+    print(f"wrote {args.out} ({len(page)} bytes)")
+    return 0
+
+
+def _doctor(path: Path | None, now: str | None, strict: bool) -> int:
+    from datetime import UTC, datetime
+
+    from .diagnostics import policy_warnings
+
+    moment = datetime.fromisoformat(now) if now else datetime.now(UTC)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    found = policy_warnings(load_policy(path), moment)
+    for warning in found:
+        print(warning)
+    print(f"{len(found)} warning(s) at {moment.isoformat()}")
+    return 1 if strict and found else 0
+
+
 def _fingerprint(path: Path | None) -> int:
     print(load_policy(path).fingerprint())
     return 0
@@ -239,6 +292,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     ap2.add_argument("--out", type=Path, help="file to write, or to check against")
     ap2.add_argument("--check", action="store_true", help="exit 1 if the public API changed")
+    rp = sub.add_parser(
+        "replay", help="replay the attack/benign corpus and report per-rule numbers"
+    )
+    rp.add_argument("--corpus", type=Path, help="corpus directory (default: the bundled one)")
+    rp.add_argument("--json", type=Path, help="write the full report as JSON")
+    rp.add_argument("--markdown", type=Path, help="write the report as Markdown")
+    rt = sub.add_parser(
+        "report", help="render a self-contained HTML evidence report from an audit log"
+    )
+    rt.add_argument("files", type=Path, nargs="+", help="audit log file(s), oldest first")
+    rt.add_argument("--out", type=Path, required=True, help="HTML file to write")
+    rt.add_argument("--policy", type=Path, help="policy used, to identify its fingerprint")
+    rt.add_argument("--expect-tail", help="externally anchored tail hash (detects truncation)")
+    rt.add_argument("--title", default="Agent tool-call evidence report")
+    dr = sub.add_parser("doctor", help="list configuration warnings for a policy")
+    dr.add_argument("path", type=Path, nargs="?")
+    dr.add_argument("--now", help="evaluate as of this ISO timestamp (default: now)")
+    dr.add_argument("--strict", action="store_true", help="exit 1 if there is any warning")
     fp = sub.add_parser("fingerprint", help="print the fingerprint of a policy's rules in force")
     fp.add_argument("path", type=Path, nargs="?")
     sp = sub.add_parser("show-policy", help="validate and print a policy (default: bundled preset)")
@@ -278,6 +349,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _verify(args.files, args.expected_tail, args.expect_policy)
         if args.cmd == "revoke":
             return _revoke(args)
+        if args.cmd == "report":
+            return _report(args)
+        if args.cmd == "replay":
+            return _replay(args.corpus, args.json, args.markdown)
+        if args.cmd == "doctor":
+            return _doctor(args.path, args.now, args.strict)
         if args.cmd == "api":
             return _api(args.out, args.check)
         if args.cmd == "schema":

@@ -53,6 +53,7 @@ packages = ["src/redhand_fintech_shield"]
 [tool.hatch.build.targets.wheel.shared-data]
 "presets" = "share/redhand-certin-0058-preset/presets"
 "schemas" = "share/redhand-certin-0058-preset/schemas"
+"corpus" = "share/redhand-certin-0058-preset/corpus"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

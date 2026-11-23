@@ -1,0 +1,52 @@
+# The policy the corpus is replayed against: the shipped CERT-In preset plus what a deployment
+# would add (more payment tools with their argument bindings, known payees, one exemption).
+# It is an ordinary overlay, so the same tighten-only rules apply to it.
+extends: certin_ciad_2026_0058
+
+loosen:
+  - "new_beneficiary.known_beneficiaries"
+  - "exemptions[corpus-batch-q4]"
+
+hitl:
+  protected_tools+: [pay_vendor, upi_send, bulk_transfer]
+structuring:
+  protected_tools+: [pay_vendor, upi_send, bulk_transfer]
+cumulative_cap:
+  protected_tools+: [pay_vendor, upi_send, bulk_transfer]
+sequence:
+  payment_tools+: [pay_vendor, upi_send, bulk_transfer]
+
+tool_bindings:
+  tools:
+    pay_vendor: {amount: value, currency: ccy, beneficiary: payee.vpa}
+    upi_send: {amount: amt, fixed_currency: INR, beneficiary: vpa}
+    bulk_transfer:
+      amount: "payments[*].amount"
+      currency: "payments[*].currency"
+      beneficiary: "payments[*].payee"
+      max_items: 50
+
+new_beneficiary:
+  known_beneficiaries:
+    - acct-trusted-1
+    - acct-trusted-2
+    - acct-trusted-3
+    - acct-trusted-4
+    - acct-trusted-5
+    - acct-trusted-6
+    - vendor-a@okbank
+    - vendor-b@okbank
+    - payroll@upi
+    - GB82WEST12345698765432
+
+exemptions:
+  - id: corpus-batch-q4
+    rules: [CIAD-2026-0058.R3.new_beneficiary_high_value]
+    reason: "Q4 vendor onboarding batch, approved under risk ticket RISK-123"
+    approved_by: risk-officer@example.com
+    starts_at: 2026-11-01T00:00:00Z
+    expires_at: 2026-12-15T00:00:00Z
+    match:
+      tools: [settle_merchant]
+      subjects: [svc-batch]
+      beneficiaries: [acct-batch-1]

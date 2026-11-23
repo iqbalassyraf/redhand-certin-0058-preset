@@ -145,7 +145,7 @@ class HashChainedAuditLog:
             if compute_record_hash(entry) != entry["record_hash"]:
                 raise AuditChainError(f"audit log {path} tail record fails its own hash")
             return str(entry["record_hash"]), int(entry["seq"]) + 1
-        except (ValueError, KeyError, TypeError) as exc:
+        except (ValueError, KeyError, TypeError, OverflowError) as exc:
             # Fail closed: never silently restart the chain over a damaged log.
             raise AuditChainError(f"audit log {path} has an unreadable tail: {exc}") from exc
 
@@ -218,7 +218,7 @@ class HashChainedAuditLog:
         for file_index, file in enumerate(files):
             try:
                 text = file.read_text(encoding="utf-8")
-            except OSError as exc:
+            except (OSError, UnicodeDecodeError) as exc:  # not valid UTF-8 is a broken log too
                 return fail(file, 0, f"unreadable: {exc}")
             for lineno, line in enumerate(text.splitlines(), start=1):
                 if not line.strip():
@@ -233,8 +233,11 @@ class HashChainedAuditLog:
                 if entry.get("type") == _CONTINUATION:
                     if lineno != 1:
                         return fail(file, lineno, "continuation header not on first line")
+                    next_seq = entry.get("next_seq", 0)
+                    if not isinstance(next_seq, int) or isinstance(next_seq, bool) or next_seq < 0:
+                        return fail(file, lineno, "malformed continuation header")
                     if file_index == 0:
-                        prev, seq = str(entry.get("prev_hash")), int(entry.get("next_seq", 0))
+                        prev, seq = str(entry.get("prev_hash")), next_seq
                         anchored = prev
                     elif entry.get("prev_hash") != prev or entry.get("next_seq") != seq:
                         return fail(

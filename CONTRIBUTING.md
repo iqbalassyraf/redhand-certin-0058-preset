@@ -94,6 +94,13 @@ deliberately:
   with a default also changes the fingerprint; classify it in `layers.DIRECTIONS` (a test enforces
   this). Before the first release the golden file may be refreshed without a version bump.
 
+* **The replay corpus.** `corpus/generate.py` writes `corpus/scenarios.jsonl` deterministically; a new
+  attack or benign case is a few lines there. Run `python corpus/generate.py`, bump `CORPUS_VERSION`,
+  then `uv run redhand-shield replay --markdown docs/detection-results.md`. An attack must name the
+  rules that should catch it; a case the preset is documented not to catch is a `known_gap`, and
+  benign traffic it flags by design is a `known_false_positive`, each with the reason. A scenario
+  that stops behaving as written fails CI, in both directions (a gap that becomes detected fails too).
+
 ---
 
 ## Pre-Commit Hooks

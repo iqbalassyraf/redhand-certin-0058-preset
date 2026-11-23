@@ -64,6 +64,7 @@ from .detectors import (
     VelocityDetector,
     Violation,
 )
+from .diagnostics import policy_warnings
 from .exceptions import (
     AgentQuarantinedError,
     CumulativeCapError,
@@ -211,6 +212,9 @@ class Shield:
         for ex in policy.exemptions:
             if ex.expires_at <= self._clock():
                 _log.warning("exemption %r expired at %s and is ignored", ex.id, ex.expires_at)
+        for warning in policy_warnings(policy, self._clock()):
+            if warning.code in ("holidays-none", "holidays-missing-year"):
+                _log.warning("%s", warning)
         self._off_hours = OffHoursEvaluator(policy)
         # One store for every stateful detector (namespaces keep them apart). Supply a shared
         # store to run several workers against the same windows; see windowstore.py for limits.
