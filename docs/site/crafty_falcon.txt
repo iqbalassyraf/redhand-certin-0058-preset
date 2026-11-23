@@ -1,0 +1,113 @@
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃                                CRAFTY FALCON                                ┃
+┃   CERT-In CIAD-2026-0058 / CIAD-2026-0049  -  redhand-certin-0058-preset    ┃
+┃ PentAGI | ARTEX | CyberStrikeAI | Cairn  -  offensive agents, machine speed ┃
+┃     Synthetic simulation: stub tools only, nothing leaves this process.     ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+╔══════════════════════════════════════════════════════════════════════════════════════════════════╗
+║                  Replaying CRAFTY FALCON  |  mode = OBSERVE-ONLY (RedHand M4.3)                  ║
+╚══════════════════════════════════════════════════════════════════════════════════════════════════╝
+
+──────────────────────────────  STAGE 1: STAGING-TO-PROD TOKEN PIVOT  ──────────────────────────────
+A credential harvested from a CI/staging job is replayed against production.
+  > ATTACKER charge_card $100.00 USD  staging-minted token -> PROD API
+      EXECUTED  observe_only would have blocked: staging_to_prod_pivot  [1.15 ms]
+
+────────────────────────────  STAGE 2: MICRO-TRANSACTION PROBING LOOP  ─────────────────────────────
+Tiny payments verify that stolen instruments can move funds, then enumerate.
+  > ATTACKER charge_card $0.50 USD  probe within 60s window
+      EXECUTED  allowed (by design)  [0.63 ms]
+  > ATTACKER charge_card $1.00 USD  probe within 60s window
+      EXECUTED  observe_only would have blocked: micro_tx_probe  [0.74 ms]
+  > ATTACKER charge_card $1.00 USD  probe within 60s window
+      EXECUTED  observe_only would have blocked: agent_quarantined  [0.59 ms]
+  > ATTACKER list_merchants x25 in 25 ms  enumeration burst
+      EXECUTED  all 25 ran; observe_only would have blocked: velocity_burst
+
+──────────────────────────  STAGE 3: SETTLEMENT / DISBURSEMENT API ABUSE  ──────────────────────────
+High-value endpoints: tool pinning and HITL step-up are cryptographic.
+  > ATTACKER initiate_disbursement $5,000.00 USD  tool absent from token's pinned allowed_tools
+      EXECUTED  observe_only would have blocked: tool_not_pinned  [0.76 ms]
+  > ATTACKER settle_merchant $48,500.00 USD  above $10,000 with no human co-signature
+      EXECUTED  observe_only would have blocked: hitl_required  [0.63 ms]
+  > OPERATOR settle_merchant $48,500.00 USD  same amount, token carries hitl_step_up=true
+      EXECUTED  observe_only would have blocked: structuring  [0.81 ms]
+
+─────────────────────────────────  STAGE 4: LOW-MONITORING WINDOW  ─────────────────────────────────
+Saturday 02:10 IST. Thresholds tighten and HITL becomes mandatory.
+  > ATTACKER settle_merchant $900.00 USD  small settlement, weekend, no HITL
+      EXECUTED  observe_only would have blocked: agent_quarantined  [0.66 ms]
+  > ATTACKER charge_card $1.00 USD  first micro-probe on a weekend trips the breaker
+      EXECUTED  observe_only would have blocked: agent_quarantined  [0.74 ms]
+
+╔══════════════════════════════════════════════════════════════════════════════════════════════════╗
+║                            Replaying CRAFTY FALCON  |  mode = ENFORCE                            ║
+╚══════════════════════════════════════════════════════════════════════════════════════════════════╝
+
+──────────────────────────────  STAGE 1: STAGING-TO-PROD TOKEN PIVOT  ──────────────────────────────
+A credential harvested from a CI/staging job is replayed against production.
+  > ATTACKER charge_card $100.00 USD  staging-minted token -> PROD API
+      BLOCKED   TokenPivotError: 'staging' credential used against 'prod'  [1.04 ms]
+
+────────────────────────────  STAGE 2: MICRO-TRANSACTION PROBING LOOP  ─────────────────────────────
+Tiny payments verify that stolen instruments can move funds, then enumerate.
+  > ATTACKER charge_card $0.50 USD  probe within 60s window
+      EXECUTED  allowed (by design)  [0.81 ms]
+  > ATTACKER charge_card $1.00 USD  probe within 60s window
+      BLOCKED   MicroTxProbeError: 2 micro-value payment(s) (1.00 USD; <= 5.00 USD) within 60s, 
+limit 2  [0.88 ms]
+  > ATTACKER charge_card $1.00 USD  probe within 60s window
+      BLOCKED   AgentQuarantinedError: agent run is quarantined: CIAD-2026-0058.R2.micro_tx_probe: 2
+micro-value payment(s) (1.00 USD; <= 5.00 USD) within 60s, limit 2  [0.15 ms]
+  > ATTACKER list_merchants x25 in 25 ms  enumeration burst
+      BLOCKED   VelocityExceededError after 20 calls; 5 refused, agent quarantined
+
+──────────────────────────  STAGE 3: SETTLEMENT / DISBURSEMENT API ABUSE  ──────────────────────────
+High-value endpoints: tool pinning and HITL step-up are cryptographic.
+  > ATTACKER initiate_disbursement $5,000.00 USD  tool absent from token's pinned allowed_tools
+      BLOCKED   ToolNotPinnedError: tool 'initiate_disbursement' is not in the token's pinned 
+allowed_tools  [1.05 ms]
+  > ATTACKER settle_merchant $48,500.00 USD  above $10,000 with no human co-signature
+      BLOCKED   HITLRequiredError: 'settle_merchant': amount 48500.00 USD exceeds 10000  [0.68 ms]
+  > OPERATOR settle_merchant $48,500.00 USD  same amount, token carries hitl_step_up=true
+      BLOCKED   StructuringError: 2 transactions totaling 53500.00 USD within 300s exceeds 
+structuring threshold 10000 [subject 'svc-payments-agent', across runs]  [1.15 ms]
+
+─────────────────────────────────  STAGE 4: LOW-MONITORING WINDOW  ─────────────────────────────────
+Saturday 02:10 IST. Thresholds tighten and HITL becomes mandatory.
+  > ATTACKER settle_merchant $900.00 USD  small settlement, weekend, no HITL
+      BLOCKED   AgentQuarantinedError: subject 'svc-payments-agent' is quarantined: 
+CIAD-2026-0058.R2.structuring: 2 transactions totaling 53500.00 USD within 300s exceeds structuring 
+threshold 10000 [subject 'svc-payments-agent', across runs]  [0.69 ms]
+  > ATTACKER charge_card $1.00 USD  first micro-probe on a weekend trips the breaker
+      BLOCKED   AgentQuarantinedError: subject 'svc-payments-agent' is quarantined: 
+CIAD-2026-0058.R2.structuring: 2 transactions totaling 53500.00 USD within 300s exceeds structuring 
+threshold 10000 [subject 'svc-payments-agent', across runs]  [0.54 ms]
+
+                       Outcome                        
+╭───────────────────────────┬──────────────┬─────────╮
+│ Metric                    │ OBSERVE-ONLY │ ENFORCE │
+├───────────────────────────┼──────────────┼─────────┤
+│ Malicious steps attempted │            9 │       9 │
+│ Malicious steps stopped   │            0 │       8 │
+│ Funds moved by attacker   │   $54,503.50 │   $0.50 │
+│ Agent runs quarantined    │            7 │       6 │
+╰───────────────────────────┴──────────────┴─────────╯
+          Decision latency (zero LLM calls)          
+╭───────┬──────────┬──────────┬──────────┬──────────╮
+│ calls │   median │      p99 │      max │   budget │
+├───────┼──────────┼──────────┼──────────┼──────────┤
+│    34 │ 0.214 ms │ 1.116 ms │ 1.147 ms │ 2.000 ms │
+╰───────┴──────────┴──────────┴──────────┴──────────╯
+
+───────────────────────────────  EVIDENCE: HASH-CHAINED AUDIT TRAIL  ───────────────────────────────
+  verify  chain OK: 34 records in 1 file(s), tail 8f005990979eef8d...
+  attacker rewrites line 1: block -> allow
+  verify  chain BROKEN at /tmp/crafty_falcon/enforce/forged_audit_trail.jsonl:1: 
+record_hash mismatch (record was modified) (0 records verified before the break)
+
+  Note: the first micro-probe ($0.50) cannot be distinguished from a legitimate small payment; the 
+breaker trips on the 2nd, as CIAD-2026-0058 specifies.
+
+  RESULT: PASS

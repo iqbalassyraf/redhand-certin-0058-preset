@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import json
 import re
 import sys
 from collections.abc import Callable
@@ -31,13 +32,21 @@ class Page:
     title: str
     source: str  # repo-relative path
     section: str | None = None  # if set, only this "## heading" section of the source
+    scripts: tuple[str, ...] = ()  # local script files (names in the site) to load on this page
 
+
+# Repo files that are copied into the site verbatim; links to them point at the copy.
+SITE_ASSETS = {
+    "docs/demo/crafty_falcon.cast": "crafty_falcon.cast",
+    "docs/demo/crafty_falcon.txt": "crafty_falcon.txt",
+}
 
 # One table: later steps append here.
 PAGES: tuple[Page, ...] = (
     Page("index", "Home", "docs/home.md"),
     Page("quickstart", "Quickstart", "docs/quickstart.md"),
     Page("architecture", "Architecture", "docs/architecture.md"),
+    Page("demo", "Demo", "docs/demo.md", scripts=("cast.js", "player.js")),
     Page("threat-model", "Threat model", "docs/threat-model.md"),
     Page("rules", "Rule catalog", "docs/rules.md"),
     Page(
@@ -103,6 +112,12 @@ class Converter:
                 i += 1
                 cls = f' class="lang-{html.escape(lang)}"' if lang else ""
                 out.append(f"<pre{cls}><code>{html.escape(chr(10).join(body))}</code></pre>")
+            elif line.startswith("<div"):
+                body = []
+                while i < len(lines) and lines[i].strip():
+                    body.append(lines[i])
+                    i += 1
+                out.append("\n".join(body))
             elif line.startswith("<svg"):
                 body = []
                 while i < len(lines):
@@ -161,7 +176,7 @@ class Converter:
     @staticmethod
     def _starts_block(line: str) -> bool:
         return bool(
-            line.startswith(("```", "|", ">", "<svg"))
+            line.startswith(("```", "|", ">", "<svg", "<div"))
             or re.match(r"(#{1,4}) ", line)
             or re.match(r"\s*([-*]|\d+\.) ", line)
         )
@@ -252,6 +267,12 @@ table{border-collapse:collapse;min-width:100%}
 th,td{border:1px solid var(--line);padding:6px 10px;text-align:left;vertical-align:top}
 th{background:var(--code)}
 blockquote{margin:1em 0;padding:0 1em;border-left:4px solid var(--line);color:var(--muted)}
+.player{margin:1.5em 0;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.player .term{background:#0d1117;color:#e6edf3;font:13px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre;height:30em;max-height:70vh;overflow:auto;padding:12px;margin:0}
+.player .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:8px 12px;background:var(--code)}
+.player .controls input[type=range]{flex:1;min-width:120px}
+.player button,.player select{font:inherit;padding:2px 10px}
+.player [data-clock]{color:var(--muted);font-variant-numeric:tabular-nums}
 .figure{margin:1.5em 0;overflow-x:auto}
 .figure svg{width:100%;height:auto;min-width:560px}
 .figure .box{fill:var(--code);stroke:var(--line);stroke-width:1.5}
@@ -279,7 +300,7 @@ TEMPLATE = """<!doctype html>
 {body}
 </main>
 <footer>Generated from the repository's Markdown by <code>scripts/build_docs.py</code>. Source: <a href="{repo}">{repo}</a></footer>
-</body>
+{scripts}</body>
 </html>
 """
 
@@ -308,6 +329,8 @@ def _make_resolver(
             rel = target.relative_to(ROOT).as_posix()
         except ValueError as exc:
             raise SystemExit(f"{page.source}: link escapes the repository: {href}") from exc
+        if (asset := SITE_ASSETS.get(rel)) is not None:
+            return asset
         if (alias := aliases.get(f"{rel}#{frag}")) is not None:
             return f"{alias.slug}.html"
         if (dest := page_by_source.get(rel)) is not None:
@@ -325,11 +348,22 @@ def build() -> dict[str, bytes]:
     page_by_source = {p.source: p for p in PAGES if p.section is None}
     aliases = {f"{p.source}#{slugify(p.section)}": p for p in PAGES if p.section is not None}
     outputs: dict[str, bytes] = {"style.css": CSS.encode()}
+    demo = ROOT / "docs" / "demo"
+    cast_lines = (demo / "crafty_falcon.cast").read_text("utf-8").splitlines()
+    events = [json.loads(line) for line in cast_lines[1:]]
+    outputs["cast.js"] = (
+        "window.CRAFTY_FALCON_CAST = " + json.dumps(events, ensure_ascii=False) + ";\n"
+    ).encode()
+    outputs["player.js"] = (demo / "player.js").read_bytes()
+    outputs["crafty_falcon.cast"] = (demo / "crafty_falcon.cast").read_bytes()
+    transcript = (demo / "crafty_falcon.txt").read_text("utf-8")
+    outputs["crafty_falcon.txt"] = transcript.encode()
     page_anchors: dict[str, list[str]] = {}
     for page in PAGES:
         md = (ROOT / page.source).read_text("utf-8")
         if page.section is not None:
             md = f"# {page.title}\n\n" + _section(md, page.section)
+        md = md.replace("{{TRANSCRIPT}}", "```text\n" + transcript + "```")
         conv = Converter(_make_resolver(page, page_by_source, aliases))
         body = conv.convert(md)
         current = ' aria-current="page"'
@@ -338,7 +372,11 @@ def build() -> dict[str, bytes]:
             for p in PAGES
         )
         outputs[f"{page.slug}.html"] = TEMPLATE.format(
-            title=html.escape(page.title), nav=nav, body=body, repo=REPO_URL
+            title=html.escape(page.title),
+            nav=nav,
+            body=body,
+            repo=REPO_URL,
+            scripts="".join(f'<script src="{name}"></script>\n' for name in page.scripts),
         ).encode()
         page_anchors[f"{page.slug}.html"] = conv.anchors
     _validate(outputs, page_anchors)
@@ -361,7 +399,12 @@ def _validate(outputs: dict[str, bytes], anchors: dict[str, list[str]]) -> None:
                 target = path or name
                 if frag not in anchors.get(target, []):
                     problems.append(f"{name}: missing anchor {href}")
-        if re.search(r"<script|https?://fonts\.|<link[^>]+href=\"https?:", text):
+        scripts = re.findall(r"<script\b[^>]*>", text)
+        for tag in scripts:
+            m = re.fullmatch(r'<script src="([A-Za-z0-9_.-]+\.js)">', tag)
+            if m is None or m[1] not in outputs:
+                problems.append(f"{name}: disallowed script tag {tag}")
+        if re.search(r"https?://fonts\.|<link[^>]+href=\"https?:", text):
             problems.append(f"{name}: external or script resource")
     if problems:
         raise SystemExit("docs site problems:\n  " + "\n  ".join(problems))

@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demo · redhand-certin-0058-preset</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top"><span class="brand">redhand-certin-0058-preset</span><nav><a href="index.html">Home</a><a href="quickstart.html">Quickstart</a><a href="architecture.html">Architecture</a><a href="demo.html" aria-current="page">Demo</a><a href="threat-model.html">Threat model</a><a href="rules.html">Rule catalog</a><a href="integration.html">Integration</a><a href="detection-results.html">Detection results</a></nav></header>
+<main>
+<h1 id="demo-crafty-falcon-enforce-vs-observe-only">Demo: CRAFTY FALCON, enforce vs observe-only</h1>
+<p>A recording of <code>examples/simulate_crafty_falcon.py</code> running the four kill-chain stages of CIAD-2026-0058 through the real shield with stub tools. Synthetic calls only; nothing leaves the process. The first pass is observe-only (everything runs, every <code>would_have_blocked</code> is recorded), the second is enforce. It ends by verifying the audit chain and detecting a forged line.</p>
+<div id="player" class="player">
+<div class="term" role="log" aria-label="Terminal recording of the simulation"></div>
+<div class="controls">
+<button type="button" data-play>Play</button>
+<button type="button" data-restart>Restart</button>
+<label>Speed <select data-speed><option value="1">1x</option><option value="2">2x</option><option value="4">4x</option></select></label>
+<input type="range" min="0" max="100" value="0" data-seek aria-label="Seek">
+<span data-clock>0.0 / 0.0 s</span>
+</div>
+</div>
+<p>Without JavaScript, or on a page that strips scripts, use the transcript below or download the recording: <a href="crafty_falcon.cast">crafty_falcon.cast</a> (asciicast v2, plays with <code>asciinema play</code>) and <a href="crafty_falcon.txt">crafty_falcon.txt</a>.</p>
+<h2 id="run-it-yourself">Run it yourself</h2>
+<pre class="lang-bash"><code>pip install &quot;redhand-certin-0058-preset[demo]&quot;
+python examples/simulate_crafty_falcon.py --delay 0</code></pre>
+<p>The latency figures in the recording are real measurements from the machine that recorded it. They vary a little on every run; the decisions do not.</p>
+<h2 id="transcript">Transcript</h2>
+<pre class="lang-text"><code>┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃                                CRAFTY FALCON                                ┃
+┃   CERT-In CIAD-2026-0058 / CIAD-2026-0049  -  redhand-certin-0058-preset    ┃
+┃ PentAGI | ARTEX | CyberStrikeAI | Cairn  -  offensive agents, machine speed ┃
+┃     Synthetic simulation: stub tools only, nothing leaves this process.     ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+╔══════════════════════════════════════════════════════════════════════════════════════════════════╗
+║                  Replaying CRAFTY FALCON  |  mode = OBSERVE-ONLY (RedHand M4.3)                  ║
+╚══════════════════════════════════════════════════════════════════════════════════════════════════╝
+
+──────────────────────────────  STAGE 1: STAGING-TO-PROD TOKEN PIVOT  ──────────────────────────────
+A credential harvested from a CI/staging job is replayed against production.
+  &gt; ATTACKER charge_card $100.00 USD  staging-minted token -&gt; PROD API
+      EXECUTED  observe_only would have blocked: staging_to_prod_pivot  [1.15 ms]
+
+────────────────────────────  STAGE 2: MICRO-TRANSACTION PROBING LOOP  ─────────────────────────────
+Tiny payments verify that stolen instruments can move funds, then enumerate.
+  &gt; ATTACKER charge_card $0.50 USD  probe within 60s window
+      EXECUTED  allowed (by design)  [0.63 ms]
+  &gt; ATTACKER charge_card $1.00 USD  probe within 60s window
+      EXECUTED  observe_only would have blocked: micro_tx_probe  [0.74 ms]
+  &gt; ATTACKER charge_card $1.00 USD  probe within 60s window
+      EXECUTED  observe_only would have blocked: agent_quarantined  [0.59 ms]
+  &gt; ATTACKER list_merchants x25 in 25 ms  enumeration burst
+      EXECUTED  all 25 ran; observe_only would have blocked: velocity_burst
+
+──────────────────────────  STAGE 3: SETTLEMENT / DISBURSEMENT API ABUSE  ──────────────────────────
+High-value endpoints: tool pinning and HITL step-up are cryptographic.
+  &gt; ATTACKER initiate_disbursement $5,000.00 USD  tool absent from token&#x27;s pinned allowed_tools
+      EXECUTED  observe_only would have blocked: tool_not_pinned  [0.76 ms]
+  &gt; ATTACKER settle_merchant $48,500.00 USD  above $10,000 with no human co-signature
+      EXECUTED  observe_only would have blocked: hitl_required  [0.63 ms]
+  &gt; OPERATOR settle_merchant $48,500.00 USD  same amount, token carries hitl_step_up=true
+      EXECUTED  observe_only would have blocked: structuring  [0.81 ms]
+
+─────────────────────────────────  STAGE 4: LOW-MONITORING WINDOW  ─────────────────────────────────
+Saturday 02:10 IST. Thresholds tighten and HITL becomes mandatory.
+  &gt; ATTACKER settle_merchant $900.00 USD  small settlement, weekend, no HITL
+      EXECUTED  observe_only would have blocked: agent_quarantined  [0.66 ms]
+  &gt; ATTACKER charge_card $1.00 USD  first micro-probe on a weekend trips the breaker
+      EXECUTED  observe_only would have blocked: agent_quarantined  [0.74 ms]
+
+╔══════════════════════════════════════════════════════════════════════════════════════════════════╗
+║                            Replaying CRAFTY FALCON  |  mode = ENFORCE                            ║
+╚══════════════════════════════════════════════════════════════════════════════════════════════════╝
+
+──────────────────────────────  STAGE 1: STAGING-TO-PROD TOKEN PIVOT  ──────────────────────────────
+A credential harvested from a CI/staging job is replayed against production.
+  &gt; ATTACKER charge_card $100.00 USD  staging-minted token -&gt; PROD API
+      BLOCKED   TokenPivotError: &#x27;staging&#x27; credential used against &#x27;prod&#x27;  [1.04 ms]
+
+────────────────────────────  STAGE 2: MICRO-TRANSACTION PROBING LOOP  ─────────────────────────────
+Tiny payments verify that stolen instruments can move funds, then enumerate.
+  &gt; ATTACKER charge_card $0.50 USD  probe within 60s window
+      EXECUTED  allowed (by design)  [0.81 ms]
+  &gt; ATTACKER charge_card $1.00 USD  probe within 60s window
+      BLOCKED   MicroTxProbeError: 2 micro-value payment(s) (1.00 USD; &lt;= 5.00 USD) within 60s, 
+limit 2  [0.88 ms]
+  &gt; ATTACKER charge_card $1.00 USD  probe within 60s window
+      BLOCKED   AgentQuarantinedError: agent run is quarantined: CIAD-2026-0058.R2.micro_tx_probe: 2
+micro-value payment(s) (1.00 USD; &lt;= 5.00 USD) within 60s, limit 2  [0.15 ms]
+  &gt; ATTACKER list_merchants x25 in 25 ms  enumeration burst
+      BLOCKED   VelocityExceededError after 20 calls; 5 refused, agent quarantined
+
+──────────────────────────  STAGE 3: SETTLEMENT / DISBURSEMENT API ABUSE  ──────────────────────────
+High-value endpoints: tool pinning and HITL step-up are cryptographic.
+  &gt; ATTACKER initiate_disbursement $5,000.00 USD  tool absent from token&#x27;s pinned allowed_tools
+      BLOCKED   ToolNotPinnedError: tool &#x27;initiate_disbursement&#x27; is not in the token&#x27;s pinned 
+allowed_tools  [1.05 ms]
+  &gt; ATTACKER settle_merchant $48,500.00 USD  above $10,000 with no human co-signature
+      BLOCKED   HITLRequiredError: &#x27;settle_merchant&#x27;: amount 48500.00 USD exceeds 10000  [0.68 ms]
+  &gt; OPERATOR settle_merchant $48,500.00 USD  same amount, token carries hitl_step_up=true
+      BLOCKED   StructuringError: 2 transactions totaling 53500.00 USD within 300s exceeds 
+structuring threshold 10000 [subject &#x27;svc-payments-agent&#x27;, across runs]  [1.15 ms]
+
+─────────────────────────────────  STAGE 4: LOW-MONITORING WINDOW  ─────────────────────────────────
+Saturday 02:10 IST. Thresholds tighten and HITL becomes mandatory.
+  &gt; ATTACKER settle_merchant $900.00 USD  small settlement, weekend, no HITL
+      BLOCKED   AgentQuarantinedError: subject &#x27;svc-payments-agent&#x27; is quarantined: 
+CIAD-2026-0058.R2.structuring: 2 transactions totaling 53500.00 USD within 300s exceeds structuring 
+threshold 10000 [subject &#x27;svc-payments-agent&#x27;, across runs]  [0.69 ms]
+  &gt; ATTACKER charge_card $1.00 USD  first micro-probe on a weekend trips the breaker
+      BLOCKED   AgentQuarantinedError: subject &#x27;svc-payments-agent&#x27; is quarantined: 
+CIAD-2026-0058.R2.structuring: 2 transactions totaling 53500.00 USD within 300s exceeds structuring 
+threshold 10000 [subject &#x27;svc-payments-agent&#x27;, across runs]  [0.54 ms]
+
+                       Outcome                        
+╭───────────────────────────┬──────────────┬─────────╮
+│ Metric                    │ OBSERVE-ONLY │ ENFORCE │
+├───────────────────────────┼──────────────┼─────────┤
+│ Malicious steps attempted │            9 │       9 │
+│ Malicious steps stopped   │            0 │       8 │
+│ Funds moved by attacker   │   $54,503.50 │   $0.50 │
+│ Agent runs quarantined    │            7 │       6 │
+╰───────────────────────────┴──────────────┴─────────╯
+          Decision latency (zero LLM calls)          
+╭───────┬──────────┬──────────┬──────────┬──────────╮
+│ calls │   median │      p99 │      max │   budget │
+├───────┼──────────┼──────────┼──────────┼──────────┤
+│    34 │ 0.214 ms │ 1.116 ms │ 1.147 ms │ 2.000 ms │
+╰───────┴──────────┴──────────┴──────────┴──────────╯
+
+───────────────────────────────  EVIDENCE: HASH-CHAINED AUDIT TRAIL  ───────────────────────────────
+  verify  chain OK: 34 records in 1 file(s), tail 8f005990979eef8d...
+  attacker rewrites line 1: block -&gt; allow
+  verify  chain BROKEN at /tmp/crafty_falcon/enforce/forged_audit_trail.jsonl:1: 
+record_hash mismatch (record was modified) (0 records verified before the break)
+
+  Note: the first micro-probe ($0.50) cannot be distinguished from a legitimate small payment; the 
+breaker trips on the 2nd, as CIAD-2026-0058 specifies.
+
+  RESULT: PASS</code></pre>
+</main>
+<footer>Generated from the repository's Markdown by <code>scripts/build_docs.py</code>. Source: <a href="https://github.com/iqbalassyraf/redhand-certin-0058-preset">https://github.com/iqbalassyraf/redhand-certin-0058-preset</a></footer>
+<script src="cast.js"></script>
+<script src="player.js"></script>
+</body>
+</html>

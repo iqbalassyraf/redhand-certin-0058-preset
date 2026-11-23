@@ -409,7 +409,7 @@ def latency_table(result: RunResult) -> Table:
     t = Table(title="Decision latency (zero LLM calls)", box=box.ROUNDED, header_style="bold")
     for col in ("calls", "median", "p99", "max", "budget"):
         t.add_column(col, justify="right")
-    p99 = statistics.quantiles(us, n=100)[98] if len(us) >= 2 else max(us)
+    p99 = statistics.quantiles(us, n=100, method="inclusive")[98] if len(us) >= 2 else max(us)
     t.add_row(
         str(len(us)),
         f"{statistics.median(us) / 1000:.3f} ms",

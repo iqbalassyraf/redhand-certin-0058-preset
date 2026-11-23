@@ -79,7 +79,8 @@ def test_every_page_is_linked_from_the_nav_and_has_content() -> None:
         html = outputs[f"{page.slug}.html"].decode()
         assert f'href="{page.slug}.html"' in html
         assert re.search(r"<h1 id=", html), page.slug
-        assert "<script" not in html
+        allowed = {f'<script src="{n}"></script>' for n in page.scripts}
+        assert set(re.findall(r"<script[^>]*></script>", html)) == allowed, page.slug
 
 
 def test_missing_link_target_is_a_build_error() -> None:
@@ -92,3 +93,46 @@ def test_non_page_repo_links_become_github_urls() -> None:
     resolve = build_docs._make_resolver(build_docs.PAGES[0], {}, {})
     assert resolve("../CONTRIBUTING.md").startswith(build_docs.REPO_URL + "/blob/main/")
     assert resolve("../schemas").startswith(build_docs.REPO_URL + "/tree/main/")
+
+
+def test_disallowed_script_is_a_build_error() -> None:
+    page = build_docs.PAGES[0]
+    outputs = {"x.html": b'<a href="x.html">ok</a><script>alert(1)</script>'}
+    with pytest.raises(SystemExit, match="disallowed script"):
+        build_docs._validate(outputs, {"x.html": []})
+    assert page.slug == "index"
+
+
+def test_transcript_tail_and_headline_numbers() -> None:
+    text = (ROOT / "docs" / "demo" / "crafty_falcon.txt").read_text("utf-8")
+    assert "Malicious steps stopped" in text and "$0.50" in text and "$54,503.50" in text
+    assert "chain OK: 34 records" in text and "chain BROKEN" in text
+    assert "\x1b" not in text and "/tmp/crafty_falcon_" not in text
+
+
+def test_cast_is_valid_asciicast_v2() -> None:
+    import json
+
+    lines = (ROOT / "docs" / "demo" / "crafty_falcon.cast").read_text("utf-8").splitlines()
+    header = json.loads(lines[0])
+    assert header["version"] == 2 and header["width"] == 100 and header["height"] > 0
+    events = [json.loads(line) for line in lines[1:]]
+    assert len(events) > 20
+    times = [e[0] for e in events]
+    assert times == sorted(times) and all(e[1] == "o" and isinstance(e[2], str) for e in events)
+    assert "/tmp/crafty_falcon_" not in "".join(e[2] for e in events)
+
+
+def test_site_copies_match_the_recording() -> None:
+    site = ROOT / "docs" / "site"
+    demo = ROOT / "docs" / "demo"
+    assert (site / "crafty_falcon.cast").read_bytes() == (demo / "crafty_falcon.cast").read_bytes()
+    assert (site / "player.js").read_bytes() == (demo / "player.js").read_bytes()
+    html = (site / "demo.html").read_text("utf-8")
+    assert "chain BROKEN" in html  # the transcript fallback is embedded in the page
+
+
+def test_player_makes_no_network_calls() -> None:
+    js = (ROOT / "docs" / "demo" / "player.js").read_text("utf-8")
+    for needle in ("fetch(", "XMLHttpRequest", "WebSocket", "http://", "https://", "eval("):
+        assert needle not in js, needle
