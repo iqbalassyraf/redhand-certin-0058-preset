@@ -1,0 +1,333 @@
+{
+  "$defs": {
+    "Decision": {
+      "enum": [
+        "allow",
+        "block",
+        "hitl_required"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "Env": {
+      "enum": [
+        "prod",
+        "staging",
+        "test",
+        "dev"
+      ],
+      "title": "Env",
+      "type": "string"
+    },
+    "M42Finding": {
+      "additionalProperties": false,
+      "description": "RedHand M4.2 telemetry finding.",
+      "properties": {
+        "agent_run_id": {
+          "title": "Agent Run Id",
+          "type": "string"
+        },
+        "decision": {
+          "$ref": "#/$defs/Decision"
+        },
+        "detail": {
+          "title": "Detail",
+          "type": "string"
+        },
+        "enforced": {
+          "title": "Enforced",
+          "type": "boolean"
+        },
+        "finding_id": {
+          "title": "Finding Id",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "policy_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Fingerprint of the policy that produced this finding.",
+          "title": "Policy Sha256"
+        },
+        "rule_id": {
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "stage": {
+          "maximum": 4,
+          "minimum": 0,
+          "title": "Stage",
+          "type": "integer"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "would_have_blocked": {
+          "title": "Would Have Blocked",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "finding_id",
+        "rule_id",
+        "severity",
+        "stage",
+        "decision",
+        "would_have_blocked",
+        "enforced",
+        "agent_run_id",
+        "tool_name",
+        "detail",
+        "observed_at"
+      ],
+      "title": "M42Finding",
+      "type": "object"
+    },
+    "Mode": {
+      "description": "ENFORCE blocks; OBSERVE_ONLY (RedHand M4.3) emits findings but never blocks.",
+      "enum": [
+        "enforce",
+        "observe_only"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "ToolCallContext": {
+      "additionalProperties": false,
+      "description": "Everything the interceptor needs to judge one tool call.",
+      "properties": {
+        "agent_run_id": {
+          "minLength": 1,
+          "title": "Agent Run Id",
+          "type": "string"
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Amount"
+        },
+        "approval": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Signed per-transaction approval presented with the call.",
+          "title": "Approval"
+        },
+        "arguments_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "SHA-256 of the canonical tool arguments; what an approval binds to.",
+          "title": "Arguments Digest"
+        },
+        "beneficiaries": {
+          "default": [],
+          "description": "All distinct payees of a bulk call; ``beneficiary`` is the first of them.",
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Beneficiaries",
+          "type": "array"
+        },
+        "beneficiary": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Beneficiary"
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z]{3}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Currency"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Metadata",
+          "type": "object"
+        },
+        "target_env": {
+          "$ref": "#/$defs/Env"
+        },
+        "timestamp": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Caller-claimed time; logged but NEVER trusted. The shield uses its own clock.",
+          "title": "Timestamp"
+        },
+        "token": {
+          "title": "Token",
+          "type": "string"
+        },
+        "tool_name": {
+          "minLength": 1,
+          "title": "Tool Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_run_id",
+        "tool_name",
+        "target_env",
+        "token"
+      ],
+      "title": "ToolCallContext",
+      "type": "object"
+    }
+  },
+  "$id": "urn:redhand:shield:audit_record:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One line of ``audit_trail.jsonl``; ``record_hash`` is computed last.",
+  "properties": {
+    "context": {
+      "$ref": "#/$defs/ToolCallContext"
+    },
+    "decision": {
+      "$ref": "#/$defs/Decision"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/M42Finding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "latency_us": {
+      "minimum": 0,
+      "title": "Latency Us",
+      "type": "integer"
+    },
+    "mode": {
+      "$ref": "#/$defs/Mode"
+    },
+    "policy_sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Fingerprint of the policy in force; absent in logs written before 3.5.",
+      "title": "Policy Sha256"
+    },
+    "prev_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Prev Hash",
+      "type": "string"
+    },
+    "record_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Record Hash",
+      "type": "string"
+    },
+    "seq": {
+      "minimum": 0,
+      "title": "Seq",
+      "type": "integer"
+    },
+    "tool_outcome": {
+      "enum": [
+        "executed",
+        "blocked",
+        "tool_error"
+      ],
+      "title": "Tool Outcome",
+      "type": "string"
+    },
+    "ts": {
+      "format": "date-time",
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "seq",
+    "ts",
+    "mode",
+    "context",
+    "decision",
+    "findings",
+    "latency_us",
+    "tool_outcome",
+    "prev_hash",
+    "record_hash"
+  ],
+  "title": "AuditRecord",
+  "type": "object"
+}

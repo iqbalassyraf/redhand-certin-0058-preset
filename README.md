@@ -247,6 +247,55 @@ expired or forged approval, or a replay is refused and the call stays at "step-u
 approval never clears a block. The old run-wide `hitl_step_up` token claim still works until you
 turn `allow_legacy_step_up` off, and every use is reported as a deprecation finding.
 
+## Integrating with a host application
+
+Everything a host application needs to consume the preset is machine-readable and versioned.
+
+* **Discover it.** `redhand-shield manifest` (or the `redhand.presets` entry point,
+  `redhand_fintech_shield.manifest:get_manifest`) returns the preset id and version, the advisories
+  it maps to, its policy fingerprint, and a catalog of every rule: stage, default severity,
+  rationale, and whether it can be tuned or waived. [docs/rules.md](docs/rules.md) is generated
+  from it and kept in sync by a test.
+* **Validate against schemas.** [schemas/](schemas) holds JSON Schemas for the policy, findings,
+  audit records, approval requests and claims, token claims, tool-call context and the manifest,
+  each with a URN `$id` and a version. A change to any model is a visible diff, and
+  `redhand-shield schema --check` fails when they are stale. The finding (M4.2) and mode (M4.3)
+  shapes were written from the design specification, not from a RedHand release; diff them against
+  RedHand's own schemas before wiring telemetry.
+* **Know which policy decided.** Every audit record and finding carries `policy_sha256`, a
+  fingerprint of the rules in force (limits, rule overrides, exemptions; not file paths).
+  `redhand-shield fingerprint` prints it, and `verify-audit --expect-policy HASH` fails unless
+  every record was decided under that policy. The preset's own content is pinned by
+  `preset_version` plus a golden fingerprint, so it cannot change silently.
+* **Tokens: audience, rotation, revocation.**
+
+  ```yaml
+  audience: payments-gateway                 # tokens must carry this aud (AgentTokenIssuer.mint(audience=...))
+  token_keys:                                # rotate without an outage
+    - {kid: 2026-q4-a, public_key_path: keys/a.pem, retire_at: 2026-12-31T00:00:00Z}
+    - {kid: 2026-q4-b, public_key_path: keys/b.pem}
+  revocation_journal_path: revoked.jsonl
+  ```
+
+  Sign with `AgentTokenIssuer(key, kid="2026-q4-b")`; a token must name a known `kid`, and a key
+  stops verifying at its `retire_at`. `redhand-shield keygen keys --kid 2026-q4-b` prints the
+  `token_keys` entry. To stop a leaked token, `redhand-shield revoke revoked.jsonl --run RUN
+  --reason "..."` (or `--jti`, `--subject`); a running shield picks it up within a second.
+  There is deliberately no `jti` replay cache: a run token is presented on every call of its run,
+  so rejecting a second use would break normal operation. Revocation is the control for a stolen
+  token.
+* **Plug in shared state.** `Shield(..., audit=, quarantine=, nonce_store=, revocations=,
+  window_store=, telemetry_sink=)` accept your own backends; each is a narrow `typing.Protocol`
+  in `redhand_fintech_shield.protocols`. Run
+  `redhand_fintech_shield.testing.window_store_contract(factory)` in your tests to check a window
+  store. Sharing detector state has limits: the shield's lock makes check-then-record atomic only
+  inside one process, so across workers a cumulative cap can overshoot by up to the number of
+  concurrent workers, and workers sharing a store need a shared time base (pass a wall-clock
+  `monotonic=` to the shield).
+* **Depend on a stable API.** [docs/public_api.json](docs/public_api.json) snapshots every name in
+  `redhand_fintech_shield.__all__` with its signature; a test fails on any difference. Breaking
+  changes and deprecations follow the policy in [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## MCP Gateway & Docker Quickstart
 
 Run the shield out-of-process as a stdio Model Context Protocol (MCP) gateway so the agent never
@@ -445,31 +494,38 @@ Raw tokens are never logged, only `sha256:<digest>`. After `rotate()` the new fi
   consistent chain, and truncation is invisible without an external anchor. Store `tail_hash`
   somewhere write-once and pass it back with `--expected-tail`. One process must own a log file.
   Retention (180+ days) is an operations concern; rotation preserves the chain.
-- **State is per process.** Sliding windows live in memory, so N workers give each its own
-  window. The quarantine journal survives restarts but is not shared live between processes.
+- **State is per process by default.** Sliding windows live in memory, so N workers give each its
+  own window. Supply a shared `WindowStore` (and quarantine, nonce and revocation stores) to share
+  them; see "Integrating with a host application" for what a shared store can and cannot
+  guarantee. The quarantine, nonce and revocation journals survive restarts.
 - **"Tool pinning" pins tool names per run** via the signed `allowed_tools` claim. It does not
   hash the tool's code or schema.
-- **HITL is a boolean claim** minted into the run token (a human pre-authorizes the run). A
-  per-transaction detached signature is the stricter design and is not in v0.1.
+- **Step-up is per transaction.** A signed, single-use approval bound to the exact transaction
+  authorises it. The older run-wide `hitl_step_up` claim still works while
+  `approval.allow_legacy_step_up` is true (every use is reported, and it is slated for removal);
+  turn it off once your approvers issue approvals.
 - **Static thresholds.** Currency ceilings are per-currency constants, not live FX. Review them.
   The preset lists only fixed-date Indian public holidays; add movable and bank holidays yourself.
 - **Unauthenticated calls never move detector state or quarantine anyone**, so a forged token
   cannot get a victim's run quarantined. Rate-limit unauthenticated traffic at the edge.
 - **Schema alignment.** No RedHand schema was available when this was written; the M4.2 finding
-  and M4.3 mode shapes are defined from the design spec (`models.py`). Diff them against your
-  RedHand release before wiring telemetry.
+  and M4.3 mode shapes are defined from the design spec (`models.py`) and exported to `schemas/`.
+  Diff them against your RedHand release before wiring telemetry.
 
 ## Layout
 
 ```
-presets/certin_ciad_2026_0058.yaml   declarative policy
-src/redhand_fintech_shield/          models, crypto, detectors, audit, interceptor, protocols,
-                                     gateway, adapters/, exceptions, CLI
+presets/certin_ciad_2026_0058.yaml   declarative policy (versioned, with locked floors)
+schemas/                             JSON Schemas for every document exchanged with a host
+docs/                                threat model, rule catalog (generated), public API snapshot
+src/redhand_fintech_shield/          models, crypto, detectors, window store, audit, interceptor,
+                                     approvals, revocations, layers (overlays), manifest, schemas,
+                                     protocols, gateway, adapters/, exceptions, CLI
 benchmarks/bench_latency.py          reproducible latency benchmark suite (core, gateway, adapters)
 Dockerfile                           multi-stage production container (non-root UID 10001)
-examples/simulate_crafty_falcon.py   Rich TUI attack simulation
-tests/                               253 tests: crypto negatives, detectors, audit tamper cases,
-                                     all four stages, both modes, gateway, adapters, benchmarks, CLI
+examples/                            attack simulation and an example policy overlay
+tests/                               unit, negative, concurrency and contract tests; every
+                                     detector test also runs against an independent window store
 ```
 
 ## Roadmap

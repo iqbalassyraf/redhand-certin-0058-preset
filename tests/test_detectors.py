@@ -23,6 +23,8 @@ from redhand_fintech_shield.detectors import (
 
 from .conftest import BUSINESS_HOURS_UTC, PRESET, WEEKEND_UTC
 
+pytestmark = pytest.mark.usefixtures("window_backend")
+
 POLICY = PolicyConfig.from_yaml(PRESET)
 NORMAL = OffHoursEvaluator(POLICY).effective(BUSINESS_HOURS_UTC)
 WEEKEND = OffHoursEvaluator(POLICY).effective(WEEKEND_UTC)

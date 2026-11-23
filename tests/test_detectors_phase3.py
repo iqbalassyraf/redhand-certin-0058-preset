@@ -54,6 +54,8 @@ from redhand_fintech_shield.models import (
 )
 from tests.conftest import BUSINESS_HOURS_UTC, WEEKEND_UTC, FakeClock
 
+pytestmark = pytest.mark.usefixtures("window_backend")
+
 MakeCtx = Callable[..., ToolCallContext]
 
 

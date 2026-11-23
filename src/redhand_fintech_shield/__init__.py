@@ -8,7 +8,7 @@ from . import adapters
 from .approvals import ApprovalIssuer, ApprovalVerifier, NonceRegistry
 from .audit import AuditLog, ChainVerificationReport, HashChainedAuditLog
 from .context import extract_tool_call_context
-from .crypto import AgentTokenIssuer, AgentTokenVerifier
+from .crypto import AgentTokenIssuer, AgentTokenVerifier, KeyRing, TokenKey
 from .detectors import QuarantineRegistry, QuarantineTracker
 from .exceptions import (
     AgentQuarantinedError,
@@ -27,8 +27,10 @@ from .exceptions import (
     ToolNotPinnedError,
     VelocityExceededError,
 )
+from .fingerprint import policy_fingerprint
 from .gateway import MCPGateway, ToolDefinition
 from .interceptor import Evaluation, Shield, redhand_guard
+from .manifest import PresetManifest, get_manifest
 from .models import (
     AggregationPolicy,
     ApprovalPolicy,
@@ -45,6 +47,7 @@ from .models import (
     PolicyProvenance,
     RuleOverride,
     TokenClaims,
+    TokenKeyConfig,
     ToolBinding,
     ToolBindingsPolicy,
     ToolCallContext,
@@ -56,9 +59,15 @@ from .protocols import (
     NonceStore,
     NullTelemetrySink,
     QuarantineBackend,
+    RevocationStore,
     TelemetrySink,
     ToolExecutor,
+    WindowStore,
+    WindowStoreFull,
 )
+from .revocations import RevocationRegistry
+from .rules import RULE_CATALOG, RuleInfo
+from .windowstore import InMemoryWindowStore
 
 __version__ = "0.1.0"
 
@@ -85,6 +94,7 @@ def load_policy(path: str | Path | None = None) -> PolicyConfig:
 
 
 __all__ = [
+    "RULE_CATALOG",
     "AgentQuarantinedError",
     "AgentTokenIssuer",
     "AgentTokenVerifier",
@@ -108,6 +118,8 @@ __all__ = [
     "ExemptionMatch",
     "HITLRequiredError",
     "HashChainedAuditLog",
+    "InMemoryWindowStore",
+    "KeyRing",
     "M42Finding",
     "MCPGateway",
     "MicroTxProbeError",
@@ -121,9 +133,13 @@ __all__ = [
     "PolicyConfig",
     "PolicyLoadError",
     "PolicyProvenance",
+    "PresetManifest",
     "QuarantineBackend",
     "QuarantineRegistry",
     "QuarantineTracker",
+    "RevocationRegistry",
+    "RevocationStore",
+    "RuleInfo",
     "RuleOverride",
     "SequenceViolationError",
     "Shield",
@@ -132,6 +148,8 @@ __all__ = [
     "TelemetrySink",
     "TokenClaims",
     "TokenInvalidError",
+    "TokenKey",
+    "TokenKeyConfig",
     "TokenPivotError",
     "ToolBinding",
     "ToolBindingsPolicy",
@@ -140,10 +158,14 @@ __all__ = [
     "ToolExecutor",
     "ToolNotPinnedError",
     "VelocityExceededError",
+    "WindowStore",
+    "WindowStoreFull",
     "__version__",
     "adapters",
     "default_preset_path",
     "extract_tool_call_context",
+    "get_manifest",
     "load_policy",
+    "policy_fingerprint",
     "redhand_guard",
 ]

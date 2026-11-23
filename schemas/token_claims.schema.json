@@ -1,0 +1,83 @@
+{
+  "$defs": {
+    "Env": {
+      "enum": [
+        "prod",
+        "staging",
+        "test",
+        "dev"
+      ],
+      "title": "Env",
+      "type": "string"
+    }
+  },
+  "$id": "urn:redhand:shield:token_claims:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Verified claims of an ephemeral per-run agent token.",
+  "properties": {
+    "agent_run_id": {
+      "title": "Agent Run Id",
+      "type": "string"
+    },
+    "allowed_tools": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Allowed Tools",
+      "type": "array"
+    },
+    "aud": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Aud"
+    },
+    "env": {
+      "$ref": "#/$defs/Env"
+    },
+    "exp": {
+      "title": "Exp",
+      "type": "integer"
+    },
+    "hitl_step_up": {
+      "title": "Hitl Step Up",
+      "type": "boolean"
+    },
+    "iat": {
+      "title": "Iat",
+      "type": "integer"
+    },
+    "iss": {
+      "title": "Iss",
+      "type": "string"
+    },
+    "jti": {
+      "title": "Jti",
+      "type": "string"
+    },
+    "sub": {
+      "title": "Sub",
+      "type": "string"
+    }
+  },
+  "required": [
+    "iss",
+    "sub",
+    "agent_run_id",
+    "env",
+    "allowed_tools",
+    "hitl_step_up",
+    "iat",
+    "exp",
+    "jti"
+  ],
+  "title": "TokenClaims",
+  "type": "object"
+}

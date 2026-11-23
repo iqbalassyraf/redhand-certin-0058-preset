@@ -11,12 +11,9 @@ import json
 import logging
 import math
 import threading
-from collections import deque
-from collections.abc import Hashable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from itertools import islice
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -35,8 +32,7 @@ from .models import (
     VelocityPolicy,
 )
 from .normalize import canonical_beneficiary
-
-# Rule identifiers live in rules.py; re-exported here for existing imports.
+from .protocols import WindowStore, WindowStoreFull
 from .rules import (
     R_APPROVAL_ACCEPTED as R_APPROVAL_ACCEPTED,
 )
@@ -87,6 +83,28 @@ from .rules import (
 )
 from .rules import (
     R_VELOCITY as R_VELOCITY,
+)
+
+# Rule identifiers live in rules.py; re-exported here for existing imports.
+from .windowstore import (
+    NS_CAP as NS_CAP,
+)
+from .windowstore import (
+    NS_MICRO,
+    NS_SEQUENCE,
+    NS_STRUCTURING,
+    NS_VELOCITY_TOOL,
+    NS_VELOCITY_TOTAL,
+    default_window_store,
+)
+from .windowstore import (
+    InMemoryWindowStore as InMemoryWindowStore,
+)
+from .windowstore import (
+    KeyedSlidingWindow as KeyedSlidingWindow,
+)
+from .windowstore import (
+    SlidingWindowCounter as SlidingWindowCounter,
 )
 
 _log = logging.getLogger(__name__)
@@ -203,103 +221,12 @@ class OffHoursEvaluator:
 # --------------------------------------------------------------------------------------
 
 
-class SlidingWindowCounter:
-    """Count of events in the trailing window; ``deque`` of monotonic stamps, bounded size."""
-
-    __slots__ = ("_stamps", "_window")
-
-    def __init__(self, window_seconds: float, maxlen: int) -> None:
-        self._window = window_seconds
-        self._stamps: deque[float] = deque(maxlen=maxlen)
-
-    def hit(self, now: float) -> int:
-        """Record an event at ``now`` and return how many events are in the window (capped)."""
-        stamps = self._stamps
-        cutoff = now - self._window
-        while stamps and stamps[0] <= cutoff:
-            stamps.popleft()
-        stamps.append(now)
-        return len(stamps)
-
-    def count(self, now: float) -> int:
-        """Return how many events are in the trailing window without recording a new event."""
-        stamps = self._stamps
-        cutoff = now - self._window
-        while stamps and stamps[0] <= cutoff:
-            stamps.popleft()
-        return len(stamps)
-
-    def newest(self) -> float | None:
-        return self._stamps[-1] if self._stamps else None
-
-    def __len__(self) -> int:
-        return len(self._stamps)
-
-
-class KeyedSlidingWindow:
-    """One bounded :class:`SlidingWindowCounter` per key, with amortized idle-key eviction."""
-
-    def __init__(
-        self,
-        window_seconds: float,
-        maxlen: int,
-        *,
-        sweep_every: int = 256,
-        sweep_batch: int = 256,
-    ) -> None:
-        self._window = window_seconds
-        self._maxlen = maxlen
-        self._counters: dict[Hashable, SlidingWindowCounter] = {}
-        self._sweep_every = sweep_every
-        self._sweep_batch = sweep_batch
-        self._ops = 0
-
-    def hit(self, key: Hashable, now: float) -> int:
-        counter = self._counters.get(key)
-        if counter is None:
-            counter = self._counters[key] = SlidingWindowCounter(self._window, self._maxlen)
-        count = counter.hit(now)
-        self._ops += 1
-        if self._ops % self._sweep_every == 0:
-            self._sweep(now)
-        return count
-
-    def count(self, key: Hashable, now: float) -> int:
-        """Return the active count for ``key`` at ``now`` without recording a new event."""
-        counter = self._counters.get(key)
-        if counter is None:
-            return 0
-        n = counter.count(now)
-        if n == 0:
-            del self._counters[key]
-        return n
-
-    def _sweep(self, now: float) -> None:
-        """Bounded rotating sweep: examine a few keys, drop idle ones, rotate survivors."""
-        cutoff = now - self._window
-        for key in list(islice(self._counters, self._sweep_batch)):
-            counter = self._counters[key]
-            newest = counter.newest()
-            if newest is None or newest <= cutoff:
-                del self._counters[key]
-            else:
-                self._counters[key] = self._counters.pop(key)
-
-    def __len__(self) -> int:
-        return len(self._counters)
-
-
-# --------------------------------------------------------------------------------------
-# Detectors
-# --------------------------------------------------------------------------------------
-
-
 class MicroTxProbeDetector:
     """Stage 2: rapid micro-value payments used to verify unauthorized fund flows."""
 
-    def __init__(self, policy: MicroTxPolicy) -> None:
+    def __init__(self, policy: MicroTxPolicy, *, store: WindowStore | None = None) -> None:
         self._p = policy
-        self._windows = KeyedSlidingWindow(policy.window_seconds, maxlen=policy.max_probes)
+        self._store = default_window_store() if store is None else store
 
     def observe(
         self,
@@ -315,7 +242,13 @@ class MicroTxProbeDetector:
         # Fail closed: an unknown or missing currency cannot be shown to be above the probe ceiling.
         if ceiling is not None and amount > ceiling:
             return None
-        count = self._windows.hit(agent_run_id, now)
+        count = self._store.hit(
+            NS_MICRO,
+            (agent_run_id,),
+            now,
+            window=self._p.window_seconds,
+            maxlen=self._p.max_probes,
+        )
         if count < effective.max_probes:
             return None
         basis = (
@@ -340,21 +273,32 @@ class MicroTxProbeDetector:
 class VelocityDetector:
     """Stage 2: machine-speed enumeration bursts per (agent run, tool) and per run overall."""
 
-    def __init__(self, policy: VelocityPolicy) -> None:
+    def __init__(self, policy: VelocityPolicy, *, store: WindowStore | None = None) -> None:
         self._p = policy
-        self._windows = KeyedSlidingWindow(policy.window_seconds, maxlen=policy.max_calls + 1)
-        # Rotating between tools keeps every per-tool count low; the all-tools window does not.
-        self._total = (
-            KeyedSlidingWindow(policy.window_seconds, maxlen=policy.max_total_calls + 1)
-            if policy.max_total_calls is not None
-            else None
-        )
+        self._store = default_window_store() if store is None else store
 
     def observe(
         self, agent_run_id: str, tool_name: str, now: float, effective: EffectivePolicy
     ) -> Violation | None:
-        count = self._windows.hit((agent_run_id, tool_name), now)
-        total = self._total.hit(agent_run_id, now) if self._total is not None else 0
+        count = self._store.hit(
+            NS_VELOCITY_TOOL,
+            (agent_run_id, tool_name),
+            now,
+            window=self._p.window_seconds,
+            maxlen=self._p.max_calls + 1,
+        )
+        # Rotating between tools keeps every per-tool count low; the all-tools window does not.
+        total = (
+            self._store.hit(
+                NS_VELOCITY_TOTAL,
+                (agent_run_id,),
+                now,
+                window=self._p.window_seconds,
+                maxlen=self._p.max_total_calls + 1,
+            )
+            if self._p.max_total_calls is not None
+            else 0
+        )
         tightened = (
             f" [tightened for {effective.off_hours_reason}]" if effective.off_hours_reason else ""
         )
@@ -369,7 +313,7 @@ class VelocityDetector:
                 quarantine=True,
             )
         limit = effective.max_total_calls
-        if self._total is not None and limit is not None and total > limit:
+        if self._p.max_total_calls is not None and limit is not None and total > limit:
             return Violation(
                 R_VELOCITY,
                 "high",
@@ -425,107 +369,6 @@ class HighValueGate:
         return Violation(rule, "high", stage, Decision.HITL_REQUIRED, f"{tool_name!r}: {reason}")
 
 
-class _WindowSum:
-    """Bounded O(1)-amortized sliding-window sum of Decimal amounts."""
-
-    __slots__ = ("_entries", "_maxlen", "_total", "_window")
-
-    def __init__(self, window_seconds: float, maxlen: int) -> None:
-        self._window = window_seconds
-        self._maxlen = maxlen
-        self._entries: deque[tuple[float, Decimal]] = deque()
-        self._total = Decimal("0")
-
-    def _expire(self, now: float) -> None:
-        entries = self._entries
-        cutoff = now - self._window
-        while entries and entries[0][0] <= cutoff:
-            _, old = entries.popleft()
-            self._total -= old
-
-    def add(self, now: float, amount: Decimal) -> tuple[int, Decimal, bool]:
-        self._expire(now)
-        entries = self._entries
-        saturated = len(entries) >= self._maxlen
-        if saturated:
-            _, dropped = entries.popleft()
-            self._total -= dropped
-        entries.append((now, amount))
-        self._total += amount
-        return len(entries), self._total, saturated
-
-    def snapshot(self, now: float) -> tuple[int, Decimal]:
-        """Entries and total in the window at ``now``, without recording anything."""
-        self._expire(now)
-        return len(self._entries), self._total
-
-    def newest(self) -> float | None:
-        return self._entries[-1][0] if self._entries else None
-
-
-class _WindowTable:
-    """Keyed :class:`_WindowSum` windows with amortised idle eviction and a hard key limit.
-
-    The key space can be attacker controlled (a payee id), so it is bounded: at the limit, expired
-    windows are purged (at most once a second, so a full table cannot be turned into a CPU sink)
-    and if there is still no room the caller must fail closed.
-    """
-
-    def __init__(
-        self,
-        window_seconds: float,
-        *,
-        max_entries: int,
-        max_keys: int,
-        sweep_every: int,
-        sweep_batch: int,
-    ) -> None:
-        self.window = window_seconds
-        self.max_entries = max_entries
-        self._max_keys = max_keys
-        self._sweep_every = sweep_every
-        self._sweep_batch = sweep_batch
-        self._windows: dict[tuple[str, str, str], _WindowSum] = {}
-        self._ops = 0
-        self._last_purge = -math.inf
-
-    def get(self, key: tuple[str, str, str]) -> _WindowSum | None:
-        return self._windows.get(key)
-
-    def has_room(self, now: float) -> bool:
-        if len(self._windows) < self._max_keys:
-            return True
-        if now - self._last_purge >= 1.0:
-            self._last_purge = now
-            cutoff = now - self.window
-            for key in [
-                k for k, w in self._windows.items() if (n := w.newest()) is None or n <= cutoff
-            ]:
-                del self._windows[key]
-        return len(self._windows) < self._max_keys
-
-    def get_or_create(self, key: tuple[str, str, str]) -> _WindowSum:
-        win = self._windows.get(key)
-        if win is None:
-            win = self._windows[key] = _WindowSum(self.window, self.max_entries)
-        return win
-
-    def tick(self, now: float) -> None:
-        self._ops += 1
-        if self._ops % self._sweep_every == 0:
-            cutoff = now - self.window
-            for key in list(islice(self._windows, self._sweep_batch)):
-                win = self._windows[key]
-                newest = win.newest()
-                if newest is None or newest <= cutoff:
-                    del self._windows[key]
-                else:
-                    self._windows[key] = self._windows.pop(key)
-
-    def __len__(self) -> int:
-        return len(self._windows)
-
-
 def _convert(
     aggregation: AggregationPolicy | None, amount: Decimal, currency: str | None
 ) -> tuple[Decimal, str]:
@@ -554,16 +397,19 @@ class StructuringDetector:
         max_entries: int = 16384,
         sweep_every: int = 256,
         sweep_batch: int = 256,
+        store: WindowStore | None = None,
     ) -> None:
         self._p = policy
         self._agg = aggregation
         self._max_entries = max_entries
-        self._table = _WindowTable(
-            policy.window_seconds,
-            max_entries=max_entries,
-            max_keys=policy.max_keys,
-            sweep_every=sweep_every,
-            sweep_batch=sweep_batch,
+        self._store = (
+            default_window_store(
+                max_keys={NS_STRUCTURING: policy.max_keys},
+                sweep_every=sweep_every,
+                sweep_batch=sweep_batch,
+            )
+            if store is None
+            else store
         )
 
     def observe(
@@ -597,7 +443,6 @@ class StructuringDetector:
             v = self._observe_scope(scope, ident, ccy, currency, amt, now, effective)
             if v is not None:
                 found.append((scope, v))
-        self._table.tick(now)
         if not found:
             return None
         first = found[0][1]
@@ -616,20 +461,24 @@ class StructuringDetector:
         effective: EffectivePolicy,
     ) -> Violation | None:
         where = "" if scope == "run" else f" [{scope} {ident!r}, across runs]"
-        key = (scope, ident, ccy)
-        win = self._table.get(key)
-        if win is None:
-            if not self._table.has_room(now):
-                return Violation(
-                    R_STRUCTURING,
-                    "critical",
-                    2,
-                    Decision.BLOCK,
-                    f"structuring tracker is full (fail-closed){where}",
-                    quarantine=True,
-                )
-            win = self._table.get_or_create(key)
-        count, total, saturated = win.add(now, amount)
+        try:
+            count, total, saturated = self._store.add(
+                NS_STRUCTURING,
+                (scope, ident, ccy),
+                now,
+                amount,
+                window=self._p.window_seconds,
+                maxlen=self._max_entries,
+            )
+        except WindowStoreFull:
+            return Violation(
+                R_STRUCTURING,
+                "critical",
+                2,
+                Decision.BLOCK,
+                f"structuring tracker is full (fail-closed){where}",
+                quarantine=True,
+            )
 
         if saturated:
             return Violation(
@@ -698,16 +547,19 @@ class CumulativeCapDetector:
         max_entries: int = 16384,
         sweep_every: int = 256,
         sweep_batch: int = 256,
+        store: WindowStore | None = None,
     ) -> None:
         self._p = policy
         self._agg = aggregation
         self._max_entries = max_entries
-        self._table = _WindowTable(
-            policy.window_seconds,
-            max_entries=max_entries,
-            max_keys=policy.max_keys,
-            sweep_every=sweep_every,
-            sweep_batch=sweep_batch,
+        self._store = (
+            default_window_store(
+                max_keys={NS_CAP: policy.max_keys},
+                sweep_every=sweep_every,
+                sweep_batch=sweep_batch,
+            )
+            if store is None
+            else store
         )
 
     def _applies(self, tool_name: str, amount: Decimal | None) -> bool:
@@ -751,22 +603,22 @@ class CumulativeCapDetector:
             return None
         amt, ccy = _convert(self._agg, amount, currency)
         shown = ccy or "MISSING"
-        for scope, ident in self._scopes(agent_run_id, subject):
+        scopes = self._scopes(agent_run_id, subject)
+        # Room for every key this payment will write, asked once, so a nearly full store cannot
+        # accept the run window and then refuse the subject window.
+        keys = [(scope, ident, ccy) for scope, ident in scopes]
+        if keys and not self._store.has_room(NS_CAP, keys, now, window=self._p.window_seconds):
+            return self._violation(*scopes[0], "cumulative-cap tracker is full (fail-closed)")
+        for scope, ident in scopes:
             caps = effective.cap_run if scope == "run" else effective.cap_subject
             cap = caps.get(ccy) if ccy else None
             if cap is None:
                 return self._violation(
                     scope, ident, f"currency {shown!r} has no configured {scope} cap (fail-closed)"
                 )
-            win = self._table.get((scope, ident, ccy))
-            if win is None:
-                if not self._table.has_room(now):
-                    return self._violation(
-                        scope, ident, "cumulative-cap tracker is full (fail-closed)"
-                    )
-                size, current = 0, Decimal(0)
-            else:
-                size, current = win.snapshot(now)
+            key = (scope, ident, ccy)
+            window = self._p.window_seconds
+            size, current = self._store.snapshot(NS_CAP, key, now, window=window)
             if size >= self._max_entries:
                 return self._violation(
                     scope,
@@ -803,8 +655,19 @@ class CumulativeCapDetector:
             return
         amt, ccy = _convert(self._agg, amount, currency)
         for scope, ident in self._scopes(agent_run_id, subject):
-            self._table.get_or_create((scope, ident, ccy)).add(now, amt)
-        self._table.tick(now)
+            try:
+                self._store.add(
+                    NS_CAP,
+                    (scope, ident, ccy),
+                    now,
+                    amt,
+                    window=self._p.window_seconds,
+                    maxlen=self._max_entries,
+                )
+            except WindowStoreFull:
+                # check() already refused a new key when the store was full; this can only be a
+                # shared store that filled in between, and the call has been decided.
+                _log.error("cumulative-cap store full: payment for %s not counted", scope)
 
 
 class NewBeneficiaryDetector:
@@ -880,18 +743,26 @@ class NewBeneficiaryDetector:
 class SequenceRuleDetector:
     """Stage 2: reconnaissance-to-payment kill-chain sequence detection."""
 
-    def __init__(self, policy: SequencePolicy) -> None:
+    def __init__(self, policy: SequencePolicy, *, store: WindowStore | None = None) -> None:
         self._p = policy
-        self._windows = KeyedSlidingWindow(policy.window_seconds, maxlen=policy.min_recon_calls)
+        self._store = default_window_store() if store is None else store
 
     def observe(self, agent_run_id: str, tool_name: str, now: float) -> Violation | None:
         if not self._p.enabled:
             return None
         if tool_name in self._p.recon_tools:
-            self._windows.hit(agent_run_id, now)
+            self._store.hit(
+                NS_SEQUENCE,
+                (agent_run_id,),
+                now,
+                window=self._p.window_seconds,
+                maxlen=self._p.min_recon_calls,
+            )
             return None
         if tool_name in self._p.payment_tools:
-            recon_count = self._windows.count(agent_run_id, now)
+            recon_count = self._store.count(
+                NS_SEQUENCE, (agent_run_id,), now, window=self._p.window_seconds
+            )
             if recon_count >= self._p.min_recon_calls:
                 return Violation(
                     R_SEQUENCE,

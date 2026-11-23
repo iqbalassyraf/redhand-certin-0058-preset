@@ -137,3 +137,23 @@ def make_ctx(issuer: AgentTokenIssuer, clock: FakeClock) -> Callable[..., ToolCa
         )
 
     return _make
+
+
+@pytest.fixture(params=["memory", "list"])
+def window_backend(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Run a test module against the in-memory store and an independent list-based one.
+
+    Modules opt in with ``pytestmark = pytest.mark.usefixtures("window_backend")``. Anything that
+    builds a detector or a Shield without a store gets the list store for the "list" run, so the
+    existing detector tests double as the "a fake host backend passes the same tests" check.
+    """
+    if request.param == "list":
+        from redhand_fintech_shield import detectors, interceptor
+        from tests.window_stores import ListWindowStore
+
+        def build(**kwargs: Any) -> ListWindowStore:
+            return ListWindowStore(**kwargs)
+
+        monkeypatch.setattr(detectors, "default_window_store", build)
+        monkeypatch.setattr(interceptor, "default_window_store", build)
+    return str(request.param)

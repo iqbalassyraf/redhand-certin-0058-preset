@@ -1,0 +1,119 @@
+{
+  "$defs": {
+    "Env": {
+      "enum": [
+        "prod",
+        "staging",
+        "test",
+        "dev"
+      ],
+      "title": "Env",
+      "type": "string"
+    }
+  },
+  "$id": "urn:redhand:shield:approval_request:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "What a human approver is asked to sign. Built by the shield, never by the agent.",
+  "properties": {
+    "agent_run_id": {
+      "minLength": 1,
+      "title": "Agent Run Id",
+      "type": "string"
+    },
+    "amount": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Amount"
+    },
+    "arguments_digest": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Arguments Digest"
+    },
+    "beneficiaries": {
+      "default": [],
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "title": "Beneficiaries",
+      "type": "array"
+    },
+    "currency": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z]{3}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Currency"
+    },
+    "details": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Details",
+      "type": "array"
+    },
+    "reasons": {
+      "default": [],
+      "description": "Rule ids that require step-up.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Reasons",
+      "type": "array"
+    },
+    "request_id": {
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "requested_at": {
+      "format": "date-time",
+      "title": "Requested At",
+      "type": "string"
+    },
+    "target_env": {
+      "$ref": "#/$defs/Env"
+    },
+    "tool_name": {
+      "minLength": 1,
+      "title": "Tool Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id",
+    "agent_run_id",
+    "tool_name",
+    "target_env",
+    "requested_at"
+  ],
+  "title": "ApprovalRequest",
+  "type": "object"
+}

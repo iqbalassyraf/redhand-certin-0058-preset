@@ -1,0 +1,180 @@
+{
+  "$defs": {
+    "Advisory": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ],
+      "title": "Advisory",
+      "type": "object"
+    },
+    "ExtensionPoint": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "summary"
+      ],
+      "title": "ExtensionPoint",
+      "type": "object"
+    },
+    "RuleEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "advisories": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Advisories",
+          "type": "array"
+        },
+        "decision": {
+          "enum": [
+            "block",
+            "hitl_required",
+            "allow",
+            "varies"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "exemptible": {
+          "title": "Exemptible",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "overridable": {
+          "title": "Overridable",
+          "type": "boolean"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "stage": {
+          "title": "Stage",
+          "type": "integer"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "stage",
+        "severity",
+        "decision",
+        "advisories",
+        "summary",
+        "rationale",
+        "overridable",
+        "exemptible"
+      ],
+      "title": "RuleEntry",
+      "type": "object"
+    }
+  },
+  "$id": "urn:redhand:shield:preset_manifest:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "What this preset is, which advisories it maps to, and what it enforces.",
+  "properties": {
+    "advisories": {
+      "items": {
+        "$ref": "#/$defs/Advisory"
+      },
+      "title": "Advisories",
+      "type": "array"
+    },
+    "extension_points": {
+      "items": {
+        "$ref": "#/$defs/ExtensionPoint"
+      },
+      "title": "Extension Points",
+      "type": "array"
+    },
+    "manifest_version": {
+      "default": 1,
+      "title": "Manifest Version",
+      "type": "integer"
+    },
+    "package_version": {
+      "title": "Package Version",
+      "type": "string"
+    },
+    "policy_sha256": {
+      "title": "Policy Sha256",
+      "type": "string"
+    },
+    "preset_id": {
+      "title": "Preset Id",
+      "type": "string"
+    },
+    "preset_version": {
+      "title": "Preset Version",
+      "type": "string"
+    },
+    "rules": {
+      "items": {
+        "$ref": "#/$defs/RuleEntry"
+      },
+      "title": "Rules",
+      "type": "array"
+    },
+    "schema_version": {
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "preset_id",
+    "preset_version",
+    "schema_version",
+    "package_version",
+    "policy_sha256",
+    "advisories",
+    "rules",
+    "extension_points"
+  ],
+  "title": "PresetManifest",
+  "type": "object"
+}

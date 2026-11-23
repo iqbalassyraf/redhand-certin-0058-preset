@@ -71,6 +71,31 @@ Every pull request must pass all four quality gates:
 
 ---
 
+## Keeping the Contract Stable
+
+The main RedHand app depends on this package, so four things are pinned by tests and change only
+deliberately:
+
+* **Public API.** `docs/public_api.json` snapshots every name in `redhand_fintech_shield.__all__`.
+  If `tests/test_public_api.py` fails, regenerate with `uv run redhand-shield api --out
+  docs/public_api.json`, review the diff, and record it in `CHANGELOG.md` under *Added*, *Changed*,
+  *Deprecated* or *Removed*. While the version is 0.x, a breaking change is allowed only in a minor
+  release with a *Changed*/*Removed* entry; first deprecate it for at least one minor release with
+  `redhand_fintech_shield._deprecation.warn_deprecated(old, new)`.
+* **Schemas.** `schemas/` holds JSON Schemas for the documents a host exchanges with the shield.
+  After changing a model run `uv run redhand-shield schema --out schemas`, and bump that
+  document's version in `schemas.py` if the change is not backwards compatible.
+* **Rule catalog.** `RULE_CATALOG` in `rules.py` describes every rule id. A new rule needs an entry
+  (and its override/exemption status); then `uv run redhand-shield manifest --markdown >
+  docs/rules.md`.
+* **The preset.** Any change to the preset's rules or limits changes its fingerprint. Bump
+  `preset_version` in `presets/certin_ciad_2026_0058.yaml`, note it in the changelog, and update
+  `tests/golden/preset_fingerprint.json` (the failing test prints the values). A new policy field
+  with a default also changes the fingerprint; classify it in `layers.DIRECTIONS` (a test enforces
+  this). Before the first release the golden file may be refreshed without a version bump.
+
+---
+
 ## Pre-Commit Hooks
 
 You can configure pre-commit to run formatting, linting, and type checking before committing:

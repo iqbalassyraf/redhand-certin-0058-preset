@@ -54,6 +54,8 @@ from redhand_fintech_shield.models import (
 from redhand_fintech_shield.normalize import canonical_beneficiary
 from tests.conftest import BUSINESS_HOURS_UTC, PRESET, WEEKEND_UTC, FakeClock
 
+pytestmark = pytest.mark.usefixtures("window_backend")
+
 TOOL = "settle_merchant"
 
 

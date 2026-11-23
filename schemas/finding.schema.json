@@ -1,0 +1,100 @@
+{
+  "$defs": {
+    "Decision": {
+      "enum": [
+        "allow",
+        "block",
+        "hitl_required"
+      ],
+      "title": "Decision",
+      "type": "string"
+    }
+  },
+  "$id": "urn:redhand:shield:finding:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "RedHand M4.2 telemetry finding.",
+  "properties": {
+    "agent_run_id": {
+      "title": "Agent Run Id",
+      "type": "string"
+    },
+    "decision": {
+      "$ref": "#/$defs/Decision"
+    },
+    "detail": {
+      "title": "Detail",
+      "type": "string"
+    },
+    "enforced": {
+      "title": "Enforced",
+      "type": "boolean"
+    },
+    "finding_id": {
+      "title": "Finding Id",
+      "type": "string"
+    },
+    "observed_at": {
+      "format": "date-time",
+      "title": "Observed At",
+      "type": "string"
+    },
+    "policy_sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Fingerprint of the policy that produced this finding.",
+      "title": "Policy Sha256"
+    },
+    "rule_id": {
+      "title": "Rule Id",
+      "type": "string"
+    },
+    "severity": {
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "stage": {
+      "maximum": 4,
+      "minimum": 0,
+      "title": "Stage",
+      "type": "integer"
+    },
+    "tool_name": {
+      "title": "Tool Name",
+      "type": "string"
+    },
+    "would_have_blocked": {
+      "title": "Would Have Blocked",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "finding_id",
+    "rule_id",
+    "severity",
+    "stage",
+    "decision",
+    "would_have_blocked",
+    "enforced",
+    "agent_run_id",
+    "tool_name",
+    "detail",
+    "observed_at"
+  ],
+  "title": "M42Finding",
+  "type": "object"
+}

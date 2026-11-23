@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -61,12 +62,57 @@ def load_public_key_pem(path: str | Path) -> Ed25519PublicKey:
     return key
 
 
+def public_key_fingerprint(key: Ed25519PublicKey) -> str:
+    """SHA-256 of the raw public key (keeps token and approval keys apart)."""
+    raw = key.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    return hashlib.sha256(raw).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class TokenKey:
+    """One verification key: tokens name it by ``kid``; it stops verifying at ``retire_at``."""
+
+    kid: str
+    public_key: Ed25519PublicKey
+    retire_at: datetime | None = None
+
+
+class KeyRing:
+    """Verification keys by ``kid``, so the signing key can be rotated with an overlap window.
+
+    Publish the new key, start signing with it, and set ``retire_at`` on the old key to the time
+    its last token can expire; after that instant tokens signed with it are refused.
+    """
+
+    def __init__(self, keys: Sequence[TokenKey]) -> None:
+        if not keys:
+            raise ValueError("a key ring needs at least one key")
+        self._keys: dict[str, TokenKey] = {}
+        for key in keys:
+            if key.kid in self._keys:
+                raise ValueError(f"duplicate kid {key.kid!r}")
+            self._keys[key.kid] = key
+
+    def get(self, kid: str) -> TokenKey | None:
+        return self._keys.get(kid)
+
+    @property
+    def fingerprints(self) -> frozenset[str]:
+        return frozenset(public_key_fingerprint(k.public_key) for k in self._keys.values())
+
+    def __len__(self) -> int:
+        return len(self._keys)
+
+
 class AgentTokenIssuer:
     """Mints short-lived, least-privilege tokens bound to one agent run."""
 
-    def __init__(self, signing_key: Ed25519PrivateKey, issuer: str = "redhand") -> None:
+    def __init__(
+        self, signing_key: Ed25519PrivateKey, issuer: str = "redhand", *, kid: str | None = None
+    ) -> None:
         self._key = signing_key
         self._issuer = issuer
+        self._kid = kid
 
     @staticmethod
     def generate_keypair() -> tuple[Ed25519PrivateKey, Ed25519PublicKey]:
@@ -83,6 +129,7 @@ class AgentTokenIssuer:
         ttl_seconds: int = 900,
         hitl_step_up: bool = False,
         now: datetime | None = None,
+        audience: str | None = None,
     ) -> str:
         if ttl_seconds <= 0:
             raise ValueError("ttl_seconds must be positive")
@@ -98,7 +145,10 @@ class AgentTokenIssuer:
             "exp": issued + ttl_seconds,
             "jti": str(uuid.uuid4()),
         }
-        return jwt.encode(payload, self._key, algorithm=_ALG)
+        if audience is not None:
+            payload["aud"] = audience
+        headers = {"kid": self._kid} if self._kid is not None else None
+        return jwt.encode(payload, self._key, algorithm=_ALG, headers=headers)
 
 
 class AgentTokenVerifier:
@@ -106,38 +156,73 @@ class AgentTokenVerifier:
 
     def __init__(
         self,
-        public_key: Ed25519PublicKey,
+        public_key: Ed25519PublicKey | KeyRing,
         issuer: str = "redhand",
         *,
         max_ttl_seconds: int = 3600,
         clock: Callable[[], datetime] = utcnow,
+        audience: str | None = None,
     ) -> None:
-        self._key = public_key
+        self._ring = public_key if isinstance(public_key, KeyRing) else None
+        self._key = None if isinstance(public_key, KeyRing) else public_key
         self._issuer = issuer
         self._max_ttl = max_ttl_seconds
         self._clock = clock
+        self._audience = audience
+
+    @property
+    def key_fingerprints(self) -> frozenset[str]:
+        """SHA-256 of every raw public key, used to keep token and approval keys separate."""
+        if self._ring is not None:
+            return self._ring.fingerprints
+        assert self._key is not None
+        return frozenset({public_key_fingerprint(self._key)})
 
     @property
     def key_fingerprint(self) -> str:
-        """SHA-256 of the raw public key, used to keep token and approval keys separate."""
-        raw = self._key.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
-        return hashlib.sha256(raw).hexdigest()
+        """The fingerprint of the single verification key (not available with a key ring)."""
+        if self._ring is not None:
+            raise AttributeError("a key ring has several keys; use key_fingerprints")
+        return next(iter(self.key_fingerprints))
+
+    def _select_key(self, token: str) -> Ed25519PublicKey:
+        if self._ring is None:
+            assert self._key is not None
+            return self._key
+        try:
+            kid = jwt.get_unverified_header(token).get("kid")
+        except jwt.PyJWTError as exc:
+            raise TokenInvalidError(f"token rejected: {type(exc).__name__}") from exc
+        if not isinstance(kid, str):
+            raise TokenInvalidError("token names no key id (kid)")
+        entry = self._ring.get(kid)
+        if entry is None:
+            raise TokenInvalidError("token is signed with an unknown key id")
+        if entry.retire_at is not None and self._clock() >= entry.retire_at:
+            raise TokenInvalidError("token signing key has been retired")
+        return entry.public_key
 
     def verify(self, token: str) -> TokenClaims:
         """Return verified claims or raise :class:`TokenInvalidError`.
 
         The algorithm is pinned to EdDSA, so ``alg=none`` and HMAC-confusion tokens fail.
         """
+        key = self._select_key(token)
+        required = [*_REQUIRED, "aud"] if self._audience is not None else list(_REQUIRED)
         try:
             raw = jwt.decode(
                 token,
-                self._key,
+                key,
                 algorithms=[_ALG],
                 issuer=self._issuer,
+                audience=self._audience,
                 options={
-                    "require": list(_REQUIRED),
+                    "require": required,
                     "verify_exp": False,  # checked below against the injectable clock
                     "verify_iat": False,
+                    # With no audience configured a token's aud is not checked, so tokens that
+                    # carry one still verify; configure `audience` to bind tokens to this service.
+                    "verify_aud": self._audience is not None,
                 },
             )
             claims = TokenClaims.model_validate(raw)

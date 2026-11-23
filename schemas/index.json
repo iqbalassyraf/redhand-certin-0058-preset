@@ -1,0 +1,52 @@
+{
+  "schemas": [
+    {
+      "file": "policy.schema.json",
+      "id": "urn:redhand:shield:policy:v1",
+      "name": "policy",
+      "sha256": "93de17883ef7bda8fab7abae849b98d9fab745bee1e9a652a784de84db254d2b"
+    },
+    {
+      "file": "finding.schema.json",
+      "id": "urn:redhand:shield:finding:v1",
+      "name": "finding",
+      "sha256": "6d575b8d0c854087d180733d17ee8bc2c3202361508639cee35405e9939901b5"
+    },
+    {
+      "file": "audit_record.schema.json",
+      "id": "urn:redhand:shield:audit_record:v1",
+      "name": "audit_record",
+      "sha256": "728ea43466a4da15de343a87723f2bda92122523e0799fcfdb499143ad9996bb"
+    },
+    {
+      "file": "approval_request.schema.json",
+      "id": "urn:redhand:shield:approval_request:v1",
+      "name": "approval_request",
+      "sha256": "6610a3488201dbcb4cd90d2e04dcec86927957c6256238bda4e82eec2178250f"
+    },
+    {
+      "file": "approval_claims.schema.json",
+      "id": "urn:redhand:shield:approval_claims:v1",
+      "name": "approval_claims",
+      "sha256": "310005c6d8875529a2944503e82024ea617ab00ab035ee0fccb26a672f452713"
+    },
+    {
+      "file": "token_claims.schema.json",
+      "id": "urn:redhand:shield:token_claims:v1",
+      "name": "token_claims",
+      "sha256": "5c3c144fd25e28e25f26bfd1a4d2d9e98526988ad7096d48e77b4ea2321f98e7"
+    },
+    {
+      "file": "tool_call_context.schema.json",
+      "id": "urn:redhand:shield:tool_call_context:v1",
+      "name": "tool_call_context",
+      "sha256": "42cdbcac0ccd5c22d8d9f1d8fd0ae0f5e66bebc59a3d10f61857834d0ebb9ecc"
+    },
+    {
+      "file": "preset_manifest.schema.json",
+      "id": "urn:redhand:shield:preset_manifest:v1",
+      "name": "preset_manifest",
+      "sha256": "5151f49cd94a1f5b396996126d4f3d3604a01b0179568f9d9cef5b1a51c997aa"
+    }
+  ]
+}

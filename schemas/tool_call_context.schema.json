@@ -1,0 +1,144 @@
+{
+  "$defs": {
+    "Env": {
+      "enum": [
+        "prod",
+        "staging",
+        "test",
+        "dev"
+      ],
+      "title": "Env",
+      "type": "string"
+    }
+  },
+  "$id": "urn:redhand:shield:tool_call_context:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Everything the interceptor needs to judge one tool call.",
+  "properties": {
+    "agent_run_id": {
+      "minLength": 1,
+      "title": "Agent Run Id",
+      "type": "string"
+    },
+    "amount": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Amount"
+    },
+    "approval": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Signed per-transaction approval presented with the call.",
+      "title": "Approval"
+    },
+    "arguments_digest": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "SHA-256 of the canonical tool arguments; what an approval binds to.",
+      "title": "Arguments Digest"
+    },
+    "beneficiaries": {
+      "default": [],
+      "description": "All distinct payees of a bulk call; ``beneficiary`` is the first of them.",
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "title": "Beneficiaries",
+      "type": "array"
+    },
+    "beneficiary": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Beneficiary"
+    },
+    "currency": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z]{3}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Currency"
+    },
+    "metadata": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Metadata",
+      "type": "object"
+    },
+    "target_env": {
+      "$ref": "#/$defs/Env"
+    },
+    "timestamp": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Caller-claimed time; logged but NEVER trusted. The shield uses its own clock.",
+      "title": "Timestamp"
+    },
+    "token": {
+      "title": "Token",
+      "type": "string"
+    },
+    "tool_name": {
+      "minLength": 1,
+      "title": "Tool Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "agent_run_id",
+    "tool_name",
+    "target_env",
+    "token"
+  ],
+  "title": "ToolCallContext",
+  "type": "object"
+}

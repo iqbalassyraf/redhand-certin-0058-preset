@@ -19,7 +19,7 @@ benchmark harness so anyone can reproduce them.
   are expected to live in separate packages built on tagged releases of this one.
 - **No platform code in the core.** The core exposes interfaces. Platform adapters live elsewhere.
 
-## Where we are (Phases 1 to 3 complete)
+## Where we are (Phases 1 to 3.5 complete)
 
 In-process decorator, Ed25519 per-run tokens, sliding-window detectors, HITL gate, off-hours
 tightening, journaled quarantine, hash-chained audit log with rotation and an offline verifier,
@@ -27,19 +27,20 @@ extensibility protocols (`protocols.py`), out-of-process MCP Gateway (`MCPGatewa
 multi-cloud and framework adapters (`BedrockConverseAdapter`, `AzureOpenAIAdapter`,
 `RedHandSemanticKernelFilter`, `GoogleGenAIAdapter`, `RedHandGuardedTool`, `GenericToolRunner`),
 production multi-stage `Dockerfile`, automated latency benchmark suite (`benchmarks/bench_latency.py`),
-a CLI, a terminal attack simulation, and 510 tests at 99% coverage. Phase 3 M1 added three
+a CLI, a terminal attack simulation, and 716 tests at 99% coverage. Phase 3 M1 added three
 deterministic detectors: split-transaction structuring, new-beneficiary high value, and the
 recon-to-payment sequence rule; M2 added per-tool argument bindings so those rules see the field
 each tool really pays from; M3 added signed, single-use, per-transaction approvals; M4 closed the detector
 bypasses (scopes across runs, caps, tool rotation, payee spelling, currency splitting); M5 added
-overlays, shadow rules and exemptions. With every
+overlays, shadow rules and exemptions; Phase 3.5 added the integration contract (manifest,
+schemas, policy fingerprint, token rotation and revocation, window-store seam, stable API). With every
 rule exercised on a protected tool (`decision_core_protected`) the in-process p99 measured about
 0.35 ms (p50 0.18 ms), and with a layered policy (shadow rule, severity override and an active
 exemption, `decision_core_layered`) about 0.6 ms, in the benchmark harness (sandbox run). Measured via `benchmarks/bench_latency.py` before M1:
 a full in-process guarded call has a p50 of 0.20 ms and p99 of 0.27 ms, and an out-of-process
 MCP Gateway `tools/call` roundtrip has a p50 of 0.37 ms and p99 of 0.54 ms.
 
-Known limits this roadmap exists to address: state is per process; the run-wide `hitl_step_up` flag
+Known limits this roadmap exists to address: detector state is per process unless a shared `WindowStore` is supplied; the run-wide `hitl_step_up` flag
 is deprecated but still honoured by default; the audit log is tamper-evident but not tamper-proof;
 tool pinning covers names, not tool code.
 
@@ -171,29 +172,42 @@ The preset will be embedded in the main RedHand app. This phase makes the bounda
 versioned so the two can evolve separately. It adds interfaces only; no platform code enters the
 core.
 
-- **Preset manifest.** `preset_id`, a semantic `preset_version`, a `schema_version` in the YAML,
-  advisory references, and a rule catalog (id, stage, severity, rationale, advisory clause).
-  Exposed through a `redhand.presets` entry point and a `redhand-shield manifest` command.
-- **JSON Schema export** for `PolicyConfig`, `M42Finding`, `AuditRecord` and `ApprovalRequest`,
-  with golden-file tests so a schema change is always a visible diff. Diff against the RedHand
-  M4.2 and M4.3 schemas as soon as they are available.
-- **Policy fingerprint.** The SHA-256 of the canonical policy goes into every audit record and
-  finding, so a decision can be traced to the exact policy that made it.
-- **Token identity.** An `aud` claim; a keyring keyed by `kid` with rotation and an overlap
-  window; a `jti` replay cache; a revocation hook. Each sits behind a protocol in
-  `protocols.py` and has an in-memory default.
-- **`DetectorStateBackend` protocol.** Sliding-window state moves behind a protocol with the
-  current in-memory implementation as the default, so the host can supply a shared store.
-  Quarantine already has this seam; the windows do not.
-- **HITL hand-off.** The `ApprovalRequest` from Phase 3 M3 is attached to the exception and to
-  the finding, so the host can render, approve and sign it without parsing messages.
-- **Stable public API.** An explicit list of public names in `__init__.py`, a deprecation
-  policy in `CONTRIBUTING.md`, and a CI check that fails on an unannounced removal.
+- [x] **Preset manifest.** `PresetManifest` (preset id and version, schema version, advisories,
+  fingerprint, rule catalog, extension points), a `redhand.presets` entry point and
+  `redhand-shield manifest [--markdown]`. `RULE_CATALOG` describes every rule id and is tied to the
+  override/exemption sets by tests; `docs/rules.md` is generated from it.
+- [x] **JSON Schema export.** `schemas/` for the policy, finding, audit record, approval request
+  and claims, token claims, tool-call context and manifest, with URN ids and a golden test;
+  `redhand-shield schema --check`. The diff against RedHand's own M4.2/M4.3 schemas remains open
+  until a RedHand release is available.
+- [x] **Policy fingerprint.** `policy_sha256` (rules in force, not deployment paths) on every audit
+  record and finding, `redhand-shield fingerprint`, `verify-audit --expect-policy`, and
+  `schema_version` / `preset_version` with a golden test that pins the preset's content. Logs
+  written before fingerprints still verify.
+- [x] **Token identity.** An `aud` claim, a `kid` key ring with rotation (`retire_at` ends the
+  overlap window; the approver key must differ from every ring key), and revocation by `jti`,
+  subject or run (`RevocationStore`, journaled, picked up live by `redhand-shield revoke`).
+  **Changed from the first draft:** a `jti` replay cache is not offered, because a run token is
+  presented on every call of its run; revocation answers a stolen token instead.
+- [x] **`WindowStore` protocol.** All five stateful detectors keep their windows behind it, with
+  an in-memory default, a conformance suite (`testing.window_store_contract`) and a second,
+  independent implementation that passes the same detector tests. Documented limits: atomicity is
+  per process, a shared store needs a shared time base, and a cumulative cap can overshoot by the
+  number of concurrent workers.
+- [x] **HITL hand-off.** The `ApprovalRequest` is attached to the exception, the gateway response
+  and the evaluation (delivered in Phase 3 M3).
+- [x] **Stable public API.** `docs/public_api.json` snapshot with a failing test on any change, a
+  deprecation policy in `CONTRIBUTING.md`, and a `DeprecationWarning` helper (the `audit_log=` and
+  `quarantine_tracker=` aliases now use it).
 
 **Done when:** the manifest and every schema are generated from code and pinned by golden
 tests; a token signed with a rotated key verifies during the overlap window and not after; a
-replayed `jti` is rejected; a decision in the audit log names the policy fingerprint; a
-fake host backend passes the same detector tests as the in-memory one.
+revoked token is refused; a decision in the audit log names the policy fingerprint; a fake host
+backend passes the same detector tests as the in-memory one.
+**Status: Complete.** Verified by `tests/test_manifest.py`, `test_schemas.py`,
+`test_fingerprint.py`, `test_token_identity.py`, `test_window_store.py` and `test_public_api.py`;
+the in-process p99 stays under 2 ms (protected tool about 0.3 to 0.4 ms, layered policy about
+0.5 to 0.6 ms, gateway about 0.8 ms; sandbox run).
 
 ## Phase 4: Proof and evidence
 

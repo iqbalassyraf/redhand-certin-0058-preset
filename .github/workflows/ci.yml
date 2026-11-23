@@ -124,3 +124,16 @@ jobs:
           assert res == 'pong', f'expected pong, got {res}'
           print('Clean wheel install-and-import smoke test: SUCCESS')
           "
+
+      - name: Run host-integration smoke test (manifest, schemas, fingerprint, API)
+        run: |
+          /tmp/smoke-env/bin/redhand-shield manifest > /dev/null
+          /tmp/smoke-env/bin/redhand-shield schema --check
+          /tmp/smoke-env/bin/redhand-shield fingerprint
+          /tmp/smoke-env/bin/python -c "
+          from importlib.metadata import entry_points
+          [ep] = [e for e in entry_points(group='redhand.presets') if e.name == 'certin_ciad_2026_0058']
+          manifest = ep.load()()
+          assert manifest.preset_version and len(manifest.rules) > 10
+          print('Host-integration smoke test: SUCCESS')
+          "

@@ -1,0 +1,114 @@
+{
+  "$defs": {
+    "Env": {
+      "enum": [
+        "prod",
+        "staging",
+        "test",
+        "dev"
+      ],
+      "title": "Env",
+      "type": "string"
+    }
+  },
+  "$id": "urn:redhand:shield:approval_claims:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Verified claims of a signed approval. Everything but ``sub``/``nonce``/times is a binding.",
+  "properties": {
+    "agent_run_id": {
+      "title": "Agent Run Id",
+      "type": "string"
+    },
+    "amount": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Amount"
+    },
+    "arguments_digest": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Arguments Digest"
+    },
+    "beneficiaries": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Beneficiaries",
+      "type": "array"
+    },
+    "currency": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Currency"
+    },
+    "exp": {
+      "title": "Exp",
+      "type": "integer"
+    },
+    "iat": {
+      "title": "Iat",
+      "type": "integer"
+    },
+    "iss": {
+      "title": "Iss",
+      "type": "string"
+    },
+    "nonce": {
+      "minLength": 1,
+      "title": "Nonce",
+      "type": "string"
+    },
+    "request_id": {
+      "title": "Request Id",
+      "type": "string"
+    },
+    "sub": {
+      "minLength": 1,
+      "title": "Sub",
+      "type": "string"
+    },
+    "target_env": {
+      "$ref": "#/$defs/Env"
+    },
+    "tool_name": {
+      "title": "Tool Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "iss",
+    "sub",
+    "request_id",
+    "agent_run_id",
+    "tool_name",
+    "target_env",
+    "nonce",
+    "iat",
+    "exp"
+  ],
+  "title": "ApprovalClaims",
+  "type": "object"
+}

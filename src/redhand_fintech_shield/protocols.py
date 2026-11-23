@@ -6,8 +6,10 @@ shield from storage, telemetry, time, and execution backends.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, Protocol, runtime_checkable
+from decimal import Decimal
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from .models import AuditRecord, M42Finding
 
@@ -47,6 +49,62 @@ class QuarantineBackend(Protocol):
         ...  # pragma: no cover
 
 
+class WindowStoreFull(Exception):
+    """A window store cannot hold another distinct key; detectors then fail closed."""
+
+
+@runtime_checkable
+class WindowStore(Protocol):
+    """Protocol for the sliding-window state behind the stateful detectors.
+
+    Windows are keyed by ``(namespace, key)``. ``window`` is the span in seconds and ``maxlen`` the
+    most events kept (the newest); both are constant per namespace. ``now`` is on the shield's
+    time base. Each operation must be atomic. A new key that cannot be stored raises
+    :class:`WindowStoreFull`; a store with no such limit never raises it.
+    """
+
+    def hit(
+        self, namespace: str, key: tuple[str, ...], now: float, *, window: float, maxlen: int
+    ) -> int:
+        """Record an event at ``now``; return how many events are in the window (capped)."""
+        ...  # pragma: no cover
+
+    def count(self, namespace: str, key: tuple[str, ...], now: float, *, window: float) -> int:
+        """Events in the window at ``now``, recording nothing (0 for an unknown key)."""
+        ...  # pragma: no cover
+
+    def add(
+        self,
+        namespace: str,
+        key: tuple[str, ...],
+        now: float,
+        amount: Decimal,
+        *,
+        window: float,
+        maxlen: int,
+    ) -> tuple[int, Decimal, bool]:
+        """Record ``amount``; return ``(entries, total, saturated)``.
+
+        ``saturated`` is True when the window was already full and its oldest entry was dropped,
+        so the total undercounts: detectors treat that as fail-closed.
+        """
+        ...  # pragma: no cover
+
+    def snapshot(
+        self, namespace: str, key: tuple[str, ...], now: float, *, window: float
+    ) -> tuple[int, Decimal]:
+        """``(entries, total)`` in the window, recording nothing ``(0, 0)`` for an unknown key."""
+        ...  # pragma: no cover
+
+    def has_room(
+        self, namespace: str, keys: Sequence[tuple[str, ...]], now: float, *, window: float
+    ) -> bool:
+        """True if recording one entry for **every** key in ``keys`` will not raise
+        :class:`WindowStoreFull`. Asked once for the whole set, so a detector that writes several
+        keys per payment (run and subject) cannot get half of them stored."""
+        ...  # pragma: no cover
+
+
 @runtime_checkable
 class NonceStore(Protocol):
     """Protocol for the single-use ledger behind per-transaction approvals."""
@@ -58,6 +116,25 @@ class NonceStore(Protocol):
         could no longer verify. A store that cannot record the nonce must raise or return False:
         an approval is honoured only when this returns True.
         """
+        ...  # pragma: no cover
+
+
+@runtime_checkable
+class RevocationStore(Protocol):
+    """Protocol for revoking agent tokens by token id, subject or agent run."""
+
+    def reason(self, jti: str, subject: str, agent_run_id: str) -> str | None:
+        """Why a token with these identifiers is revoked, or None if it is not."""
+        ...  # pragma: no cover
+
+    def revoke(
+        self,
+        kind: Literal["jti", "subject", "run"],
+        value: str,
+        reason: str,
+        expires_at: int | None = None,
+    ) -> bool:
+        """Revoke ``value``; ``expires_at`` (epoch seconds) lets a store forget it later."""
         ...  # pragma: no cover
 
 
@@ -126,6 +203,9 @@ __all__ = [
     "NonceStore",
     "NullTelemetrySink",
     "QuarantineBackend",
+    "RevocationStore",
     "TelemetrySink",
     "ToolExecutor",
+    "WindowStore",
+    "WindowStoreFull",
 ]

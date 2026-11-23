@@ -334,13 +334,14 @@ def test_shield_accepts_audit_log_alias_parameter(
     policy: PolicyConfig, verifier: AgentTokenVerifier, clock: FakeClock, make_ctx: MakeCtx
 ) -> None:
     custom_audit = InMemoryAuditBackend()
-    shield = Shield(
-        policy,
-        verifier,
-        audit_log=custom_audit,
-        clock=clock.now,
-        monotonic=clock.monotonic,
-    )
+    with pytest.warns(DeprecationWarning, match=r"Shield\(audit_log=\.\.\.\) is deprecated"):
+        shield = Shield(
+            policy,
+            verifier,
+            audit_log=custom_audit,
+            clock=clock.now,
+            monotonic=clock.monotonic,
+        )
     assert shield.audit is custom_audit
     assert shield.audit_log is custom_audit
     shield.close()
@@ -376,13 +377,14 @@ def test_shield_accepts_quarantine_tracker_alias_parameter(
     policy: PolicyConfig, verifier: AgentTokenVerifier, clock: FakeClock
 ) -> None:
     custom_q = InMemoryQuarantineBackend()
-    shield = Shield(
-        policy,
-        verifier,
-        quarantine_tracker=custom_q,
-        clock=clock.now,
-        monotonic=clock.monotonic,
-    )
+    with pytest.warns(DeprecationWarning, match=r"quarantine_tracker=\.\.\.\) is deprecated"):
+        shield = Shield(
+            policy,
+            verifier,
+            quarantine_tracker=custom_q,
+            clock=clock.now,
+            monotonic=clock.monotonic,
+        )
     assert shield.quarantine is custom_q
     assert shield.quarantine_tracker is custom_q
 

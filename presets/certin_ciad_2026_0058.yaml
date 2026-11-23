@@ -4,7 +4,9 @@
 # Currency thresholds are static, per currency, and must be reviewed by the operator.
 # Unknown currencies fail CLOSED (treated as a probe candidate and as above the HITL threshold).
 
+schema_version: 1                 # policy schema this file is written for
 preset_id: certin_ciad_2026_0058
+preset_version: "0.2.0"           # semantic version of THIS content: bump on any change
 mode: enforce                     # enforce | observe_only (RedHand M4.3)
 
 # --- Overlays ---------------------------------------------------------------------------------

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
+import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -25,9 +27,10 @@ from .crypto import (
 )
 from .exceptions import PolicyLoadError, ShieldError
 from .models import ApprovalRequest
+from .revocations import RevocationRegistry
 
 
-def _keygen(out: Path, name: str = "redhand") -> int:
+def _keygen(out: Path, name: str = "redhand", kid: str | None = None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     private, public = AgentTokenIssuer.generate_keypair()
     priv_path, pub_path = out / f"{name}_ed25519_private.pem", out / f"{name}_ed25519_public.pem"
@@ -42,6 +45,9 @@ def _keygen(out: Path, name: str = "redhand") -> int:
     print(f"public key  (set policy.verifier_public_key_path): {pub_path}")
     if name != "redhand":
         print("for an approver key, set policy.approval.verifier_public_key_path instead")
+    if kid is not None:
+        print("add to the policy so tokens signed with AgentTokenIssuer(key, kid=...) verify:")
+        print(f"token_keys:\n  - kid: {kid}\n    public_key_path: {pub_path}")
     return 0
 
 
@@ -62,12 +68,103 @@ def _approve(args: argparse.Namespace) -> int:
     return 0
 
 
-def _verify(files: list[Path], expected_tail: str | None) -> int:
+def _verify(files: list[Path], expected_tail: str | None, expect_policy: str | None) -> int:
     report = HashChainedAuditLog.verify_chain(files, expected_tail_hash=expected_tail)
     print(report)
-    if report.ok:
-        print(f"tail_hash {report.tail_hash}  (anchor this value externally)")
-    return 0 if report.ok else 1
+    if not report.ok:
+        return 1
+    print(f"tail_hash {report.tail_hash}  (anchor this value externally)")
+    for fingerprint in report.policy_fingerprints:
+        print(f"policy_sha256 {fingerprint}")
+    if report.unstamped_records:
+        print(f"{report.unstamped_records} record(s) carry no policy fingerprint")
+    if expect_policy is not None and (
+        report.policy_fingerprints != (expect_policy,) or report.unstamped_records
+    ):
+        print(f"error: records were not all decided under policy {expect_policy}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _revoke(args: argparse.Namespace) -> int:
+    kind, value = next(
+        (k, getattr(args, k)) for k in ("jti", "subject", "run") if getattr(args, k) is not None
+    )
+    expires = None if args.expires_in is None else int(time.time()) + args.expires_in
+    registry = RevocationRegistry(args.journal)
+    if registry.revoke(kind, value, args.reason, expires):  # type: ignore[arg-type]
+        print(f"revoked {kind} {value!r} (a running shield picks it up within a second)")
+    else:
+        print(f"{kind} {value!r} was already revoked")
+    return 0
+
+
+def _manifest(markdown: bool) -> int:
+    from .manifest import get_manifest, render_rules_markdown
+
+    manifest = get_manifest()
+    print(render_rules_markdown(manifest) if markdown else manifest.model_dump_json(indent=2))
+    return 0
+
+
+def _schema(out: Path | None, check: bool) -> int:
+    from .schemas import all_files, check_schemas, default_schema_dir, write_schemas
+
+    if check:
+        directory = out if out is not None else default_schema_dir()
+        problems = check_schemas(directory)
+        for problem in problems:
+            print(f"schema {problem}", file=sys.stderr)
+        if problems:
+            print(
+                f"error: regenerate with `redhand-shield schema --out {directory}`", file=sys.stderr
+            )
+            return 1
+        print(f"schemas OK ({directory})")
+        return 0
+    if out is None:
+        print(json.dumps({name: json.loads(text) for name, text in all_files().items()}, indent=2))
+        return 0
+    for path in write_schemas(out):
+        print(f"wrote {path}")
+    return 0
+
+
+def _api(out: Path | None, check: bool) -> int:
+    from .api_snapshot import default_snapshot_path, diff, render, snapshot
+
+    live = snapshot()
+    target = out if out is not None else default_snapshot_path()
+    if check:
+        try:
+            committed = json.loads(target.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            print(f"error: cannot read {target}: {exc}", file=sys.stderr)
+            return 1
+        changes = diff(committed, live)
+        for change in changes:
+            print(f"public API {change}", file=sys.stderr)
+        if changes:
+            print(
+                f"error: update with `redhand-shield api --out {target}` and record the change "
+                "in CHANGELOG.md (Added/Changed/Deprecated/Removed)",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"public API OK ({target})")
+        return 0
+    if out is None:
+        print(render(live), end="")
+    else:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(render(live), encoding="utf-8", newline="\n")
+        print(f"wrote {out}")
+    return 0
+
+
+def _fingerprint(path: Path | None) -> int:
+    print(load_policy(path).fingerprint())
+    return 0
 
 
 def _gateway(args: argparse.Namespace) -> int:
@@ -84,22 +181,14 @@ def _gateway(args: argparse.Namespace) -> int:
     if updates:
         policy = policy.model_copy(update=updates)
 
+    verifier: AgentTokenVerifier | None = None
     if args.public_key is not None:
-        public_key = load_public_key_pem(args.public_key)
         verifier = AgentTokenVerifier(
-            public_key,
+            load_public_key_pem(args.public_key),
             issuer=policy.issuer,
             max_ttl_seconds=policy.max_token_ttl_seconds,
+            audience=policy.audience,
         )
-    elif policy.verifier_public_key_path is not None:
-        public_key = load_public_key_pem(policy.verifier_public_key_path)
-        verifier = AgentTokenVerifier(
-            public_key,
-            issuer=policy.issuer,
-            max_ttl_seconds=policy.max_token_ttl_seconds,
-        )
-    else:
-        raise PolicyLoadError("no verifier supplied and policy.verifier_public_key_path is not set")
 
     shield = Shield(policy, verifier)
     gateway = MCPGateway(shield=shield, default_env=Env(args.target_env))
@@ -113,6 +202,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     kg = sub.add_parser("keygen", help="generate an Ed25519 signing keypair (PEM)")
     kg.add_argument("out", type=Path, nargs="?", default=Path("keys"))
+    kg.add_argument("--kid", help="key id; prints the policy token_keys entry for this key")
     kg.add_argument("--name", default="redhand", help="file prefix, e.g. 'approver' for approvals")
     ap_ = sub.add_parser("approve", help="sign a per-transaction approval for an approval request")
     ap_.add_argument("request", type=Path, help="ApprovalRequest JSON (from the shield's response)")
@@ -125,6 +215,32 @@ def main(argv: Sequence[str] | None = None) -> int:
     va = sub.add_parser("verify-audit", help="verify audit hash chain(s), oldest file first")
     va.add_argument("files", type=Path, nargs="+")
     va.add_argument("--expected-tail", help="externally anchored tail hash (detects truncation)")
+    va.add_argument(
+        "--expect-policy",
+        help="fail unless every record was decided under this policy fingerprint",
+    )
+    rv = sub.add_parser("revoke", help="revoke an agent token, subject or run (journaled)")
+    rv.add_argument("journal", type=Path, help="the policy's revocation_journal_path")
+    which = rv.add_mutually_exclusive_group(required=True)
+    which.add_argument("--jti", help="revoke one token by its jti")
+    which.add_argument("--subject", help="revoke every token of this subject")
+    which.add_argument("--run", help="revoke every token of this agent run")
+    rv.add_argument("--reason", required=True)
+    rv.add_argument(
+        "--expires-in", type=int, help="forget the revocation after N seconds (>= token TTL)"
+    )
+    mf = sub.add_parser("manifest", help="print the preset manifest (JSON) or rule catalog")
+    mf.add_argument("--markdown", action="store_true", help="render the rule catalog as Markdown")
+    sc = sub.add_parser("schema", help="print, write (--out) or verify (--check) the JSON Schemas")
+    sc.add_argument("--out", type=Path, help="directory to write to, or to check against")
+    sc.add_argument("--check", action="store_true", help="exit 1 if the schemas are out of date")
+    ap2 = sub.add_parser(
+        "api", help="print, write (--out) or verify (--check) the public API snapshot"
+    )
+    ap2.add_argument("--out", type=Path, help="file to write, or to check against")
+    ap2.add_argument("--check", action="store_true", help="exit 1 if the public API changed")
+    fp = sub.add_parser("fingerprint", help="print the fingerprint of a policy's rules in force")
+    fp.add_argument("path", type=Path, nargs="?")
     sp = sub.add_parser("show-policy", help="validate and print a policy (default: bundled preset)")
     sp.add_argument("path", type=Path, nargs="?")
 
@@ -155,11 +271,21 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         if args.cmd == "keygen":
-            return _keygen(args.out, args.name)
+            return _keygen(args.out, args.name, args.kid)
         if args.cmd == "approve":
             return _approve(args)
         if args.cmd == "verify-audit":
-            return _verify(args.files, args.expected_tail)
+            return _verify(args.files, args.expected_tail, args.expect_policy)
+        if args.cmd == "revoke":
+            return _revoke(args)
+        if args.cmd == "api":
+            return _api(args.out, args.check)
+        if args.cmd == "schema":
+            return _schema(args.out, args.check)
+        if args.cmd == "manifest":
+            return _manifest(args.markdown)
+        if args.cmd == "fingerprint":
+            return _fingerprint(args.path)
         if args.cmd == "gateway":
             return _gateway(args)
         policy = load_policy(args.path)

@@ -48,10 +48,15 @@ _INF = float("inf")
 #   free                  deployment setting (paths, ids); never a limit
 DIRECTIONS: dict[str, str] = {
     "preset_id": "free",
+    "preset_version": "free",
+    "schema_version": "fixed",
     "mode": "enum:observe_only,enforce",
     "issuer": "free",
     "max_token_ttl_seconds": "lower",
     "verifier_public_key_path": "free",
+    "token_keys": "fixed",
+    "audience": "fixed",
+    "revocation_journal_path": "free",
     "micro_tx.ceilings": "map_higher",
     "micro_tx.max_probes": "lower",
     "micro_tx.window_seconds": "higher",
@@ -113,7 +118,7 @@ DIRECTIONS: dict[str, str] = {
 
 
 # Policy sections whose fields are classified individually ("section.field" in DIRECTIONS).
-_SECTIONS = (
+SECTIONS = (
     "micro_tx",
     "velocity",
     "hitl",
@@ -231,7 +236,7 @@ def find_loosenings(base: PolicyConfig, merged: PolicyConfig) -> list[Loosening]
     old, new = base.model_dump(), merged.model_dump()
     out: list[Loosening] = []
     for field in new:
-        if field in _SECTIONS:
+        if field in SECTIONS:
             for name in new[field]:
                 path = f"{field}.{name}"
                 kind = DIRECTIONS.get(path, "fixed")

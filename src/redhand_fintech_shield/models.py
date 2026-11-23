@@ -24,6 +24,8 @@ from .rules import EXEMPTIBLE_RULES, OVERRIDABLE_RULES
 
 _STRICT = ConfigDict(frozen=True, extra="forbid")
 
+SUPPORTED_SCHEMA_VERSION = 1  # policy schema this package understands
+
 CurrencyCode = Annotated[str, StringConstraints(pattern=r"^[A-Za-z]{3}$", to_upper=True)]
 NonEmptyStr = Annotated[str, StringConstraints(min_length=1)]
 # Dotted argument path with optional list selectors: ``payee.vpa``, ``payments[*].amount``,
@@ -563,16 +565,44 @@ class PolicyProvenance(BaseModel):
     )
 
 
+class TokenKeyConfig(BaseModel):
+    """One agent-token verification key in a key ring (see ``crypto.KeyRing``)."""
+
+    model_config = _STRICT
+
+    kid: NonEmptyStr
+    public_key_path: Path
+    retire_at: AwareDatetime | None = Field(
+        default=None, description="Tokens signed with this key stop verifying at this instant."
+    )
+
+
 class PolicyConfig(BaseModel):
     """Declarative policy; loaded from ``presets/certin_ciad_2026_0058.yaml``."""
 
     model_config = _STRICT
 
+    schema_version: int = Field(
+        default=1, ge=1, description="Policy schema version; a newer one than supported is refused."
+    )
     preset_id: NonEmptyStr = "certin_ciad_2026_0058"
+    preset_version: str | None = Field(
+        default=None, description="Semantic version of the preset's content (bump on any change)."
+    )
     mode: Mode = Mode.ENFORCE
     issuer: NonEmptyStr = "redhand"
     max_token_ttl_seconds: int = Field(default=3600, ge=1)
     verifier_public_key_path: Path | None = None
+    token_keys: tuple[TokenKeyConfig, ...] = Field(
+        default=(),
+        description="Key ring for rotation; tokens must carry a matching kid. Replaces the single "
+        "verifier_public_key_path.",
+    )
+    audience: NonEmptyStr | None = Field(
+        default=None,
+        description="If set, tokens must carry this aud claim (binds tokens to this service).",
+    )
+    revocation_journal_path: Path | None = None
     micro_tx: MicroTxPolicy = Field(default_factory=MicroTxPolicy)
     velocity: VelocityPolicy = Field(default_factory=VelocityPolicy)
     hitl: HITLPolicy = Field(default_factory=HITLPolicy)
@@ -593,6 +623,22 @@ class PolicyConfig(BaseModel):
     audit_fsync: bool = False
     quarantine_journal_path: Path | None = None
 
+    @field_validator("schema_version")
+    @classmethod
+    def _supported_schema(cls, v: int) -> int:
+        if v > SUPPORTED_SCHEMA_VERSION:
+            raise ValueError(
+                f"policy schema_version {v} is newer than this package supports "
+                f"({SUPPORTED_SCHEMA_VERSION}); upgrade redhand-certin-0058-preset"
+            )
+        return v
+
+    def fingerprint(self) -> str:
+        """SHA-256 of the rules this policy puts in force (see ``fingerprint.py``)."""
+        from .fingerprint import policy_fingerprint  # lazy: fingerprint imports layers
+
+        return policy_fingerprint(self)
+
     @property
     def protected_tools(self) -> frozenset[str]:
         """Every tool the money rules treat as protected."""
@@ -611,6 +657,15 @@ class PolicyConfig(BaseModel):
                     f"tool_bindings.require_for_protected is set but these protected tools have "
                     f"no binding: {', '.join(missing)}"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _token_key_sources(self) -> PolicyConfig:
+        if self.token_keys and self.verifier_public_key_path is not None:
+            raise ValueError("set either token_keys or verifier_public_key_path, not both")
+        kids = [k.kid for k in self.token_keys]
+        if len(kids) != len(set(kids)):
+            raise ValueError("token_keys has a duplicate kid")
         return self
 
     @model_validator(mode="after")
@@ -720,6 +775,11 @@ class M42Finding(BaseModel):
     tool_name: str
     detail: str
     observed_at: datetime
+    policy_sha256: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+        description="Fingerprint of the policy that produced this finding.",
+    )
 
 
 class TokenClaims(BaseModel):
@@ -729,6 +789,7 @@ class TokenClaims(BaseModel):
 
     iss: str
     sub: str
+    aud: str | None = None
     agent_run_id: str
     env: Env
     allowed_tools: tuple[str, ...]
@@ -751,5 +812,10 @@ class AuditRecord(BaseModel):
     findings: list[M42Finding]
     latency_us: int = Field(ge=0)
     tool_outcome: Literal["executed", "blocked", "tool_error"]
+    policy_sha256: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+        description="Fingerprint of the policy in force; absent in logs written before 3.5.",
+    )
     prev_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     record_hash: str = Field(pattern=r"^[0-9a-f]{64}$")

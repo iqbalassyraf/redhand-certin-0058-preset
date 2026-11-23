@@ -54,6 +54,10 @@ class ChainVerificationReport:
     failure_file: str | None = None
     failure_line: int | None = None
     failure_reason: str | None = None
+    # Distinct policy fingerprints stamped on the verified records, and how many carry none
+    # (records written before fingerprints existed).
+    policy_fingerprints: tuple[str, ...] = ()
+    unstamped_records: int = 0
 
     def __str__(self) -> str:
         if self.ok:
@@ -194,10 +198,21 @@ class HashChainedAuditLog:
         seq = 0
         checked = 0
         anchored: str | None = None
+        seen: dict[str, None] = {}
+        unstamped = 0
 
         def fail(file: Path, line: int, why: str) -> ChainVerificationReport:
             return ChainVerificationReport(
-                False, len(files), checked, prev, anchored, str(file), line, why
+                False,
+                len(files),
+                checked,
+                prev,
+                anchored,
+                str(file),
+                line,
+                why,
+                tuple(seen),
+                unstamped,
             )
 
         for file_index, file in enumerate(files):
@@ -240,6 +255,11 @@ class HashChainedAuditLog:
                 prev = entry["record_hash"]
                 seq += 1
                 checked += 1
+                stamp = entry.get("policy_sha256")
+                if isinstance(stamp, str):
+                    seen.setdefault(stamp)
+                else:
+                    unstamped += 1
 
         if expected_tail_hash is not None and expected_tail_hash != prev:
             return ChainVerificationReport(
@@ -251,8 +271,12 @@ class HashChainedAuditLog:
                 str(files[-1]) if files else None,
                 None,
                 "tail hash differs from the externally anchored value (truncation or rewrite)",
+                tuple(seen),
+                unstamped,
             )
-        return ChainVerificationReport(True, len(files), checked, prev, anchored)
+        return ChainVerificationReport(
+            True, len(files), checked, prev, anchored, None, None, None, tuple(seen), unstamped
+        )
 
 
 # Ergonomic alias conforming to protocol naming

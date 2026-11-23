@@ -25,6 +25,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, Literal, TypeVar, cast
 
+from ._deprecation import warn_deprecated
 from .approvals import (
     ApprovalVerifier,
     NonceRegistry,
@@ -33,7 +34,7 @@ from .approvals import (
     payees_of,
 )
 from .audit import HashChainedAuditLog
-from .crypto import AgentTokenVerifier, load_public_key_pem, utcnow
+from .crypto import AgentTokenVerifier, KeyRing, TokenKey, load_public_key_pem, utcnow
 from .detectors import (
     R_APPROVAL_ACCEPTED,
     R_APPROVAL_REJECTED,
@@ -79,6 +80,7 @@ from .exceptions import (
     ToolNotPinnedError,
     VelocityExceededError,
 )
+from .fingerprint import policy_fingerprint
 from .models import (
     ApprovalRequest,
     AuditRecord,
@@ -98,8 +100,12 @@ from .protocols import (
     NonceStore,
     NullTelemetrySink,
     QuarantineBackend,
+    RevocationStore,
     TelemetrySink,
+    WindowStore,
 )
+from .revocations import RevocationRegistry
+from .windowstore import NS_CAP, NS_STRUCTURING, default_window_store
 
 _log = logging.getLogger(__name__)
 F = TypeVar("F", bound=Callable[..., Any])
@@ -157,10 +163,17 @@ class Shield:
         telemetry_sink: TelemetrySink | None = None,
         approval_verifier: ApprovalVerifier | None = None,
         nonce_store: NonceStore | None = None,
+        revocations: RevocationStore | None = None,
+        window_store: WindowStore | None = None,
         clock: Clock | Callable[[], datetime] = utcnow,
         monotonic: MonotonicClock | Callable[[], float] = time.monotonic,
     ) -> None:
+        if audit_log is not None:
+            warn_deprecated("Shield(audit_log=...)", "Shield(audit=...)")
+        if quarantine_tracker is not None:
+            warn_deprecated("Shield(quarantine_tracker=...)", "Shield(quarantine=...)")
         self.policy = policy
+        self.policy_fingerprint = policy_fingerprint(policy)
 
         if isinstance(clock, Clock):
             self._clock: Callable[[], datetime] = clock.now
@@ -183,6 +196,9 @@ class Shield:
             telemetry_sink if telemetry_sink is not None else NullTelemetrySink()
         )
 
+        self.revocations: RevocationStore = revocations or RevocationRegistry(
+            policy.revocation_journal_path, clock=self._clock
+        )
         self._approval_verifier = approval_verifier or self._approval_verifier_from_policy(
             policy, self._clock
         )
@@ -196,11 +212,28 @@ class Shield:
             if ex.expires_at <= self._clock():
                 _log.warning("exemption %r expired at %s and is ignored", ex.id, ex.expires_at)
         self._off_hours = OffHoursEvaluator(policy)
-        self._micro = MicroTxProbeDetector(policy.micro_tx)
-        self._velocity = VelocityDetector(policy.velocity)
-        self._structuring = StructuringDetector(policy.structuring, aggregation=policy.aggregation)
-        self._cap = CumulativeCapDetector(policy.cumulative_cap, aggregation=policy.aggregation)
-        self._sequence = SequenceRuleDetector(policy.sequence)
+        # One store for every stateful detector (namespaces keep them apart). Supply a shared
+        # store to run several workers against the same windows; see windowstore.py for limits.
+        self.window_store: WindowStore = (
+            default_window_store(
+                max_keys={
+                    NS_STRUCTURING: policy.structuring.max_keys,
+                    NS_CAP: policy.cumulative_cap.max_keys,
+                }
+            )
+            if window_store is None
+            else window_store
+        )
+        store = self.window_store
+        self._micro = MicroTxProbeDetector(policy.micro_tx, store=store)
+        self._velocity = VelocityDetector(policy.velocity, store=store)
+        self._structuring = StructuringDetector(
+            policy.structuring, aggregation=policy.aggregation, store=store
+        )
+        self._cap = CumulativeCapDetector(
+            policy.cumulative_cap, aggregation=policy.aggregation, store=store
+        )
+        self._sequence = SequenceRuleDetector(policy.sequence, store=store)
         self._hitl = HighValueGate(policy.hitl)
         self._new_beneficiary = NewBeneficiaryDetector(
             policy.new_beneficiary,
@@ -225,6 +258,20 @@ class Shield:
     def _verifier_from_policy(
         policy: PolicyConfig, clock: Callable[[], datetime]
     ) -> AgentTokenVerifier:
+        if policy.token_keys:
+            ring = KeyRing(
+                [
+                    TokenKey(k.kid, load_public_key_pem(k.public_key_path), k.retire_at)
+                    for k in policy.token_keys
+                ]
+            )
+            return AgentTokenVerifier(
+                ring,
+                policy.issuer,
+                max_ttl_seconds=policy.max_token_ttl_seconds,
+                clock=clock,
+                audience=policy.audience,
+            )
         if policy.verifier_public_key_path is None:
             raise PolicyLoadError(
                 "no verifier supplied and policy.verifier_public_key_path is not set"
@@ -234,6 +281,7 @@ class Shield:
             policy.issuer,
             max_ttl_seconds=policy.max_token_ttl_seconds,
             clock=clock,
+            audience=policy.audience,
         )
 
     @staticmethod
@@ -251,9 +299,9 @@ class Shield:
 
     def _check_key_separation(self) -> None:
         """An approver key equal to the token issuer's would let the issuer approve its own runs."""
-        approver = getattr(self._approval_verifier, "key_fingerprint", None)
-        issuer = getattr(self._verifier, "key_fingerprint", None)
-        if approver is not None and approver == issuer:
+        approver: frozenset[str] = getattr(self._approval_verifier, "key_fingerprints", frozenset())
+        issuer: frozenset[str] = getattr(self._verifier, "key_fingerprints", frozenset())
+        if approver & issuer:
             raise PolicyLoadError(
                 "the approval verifier key must differ from the agent-token verifier key"
             )
@@ -415,6 +463,9 @@ class Shield:
             if claims.agent_run_id != ctx.agent_run_id:
                 claims = None
                 raise TokenInvalidError("token is bound to a different agent run")
+            if revoked := self.revocations.reason(claims.jti, claims.sub, claims.agent_run_id):
+                claims = None  # a revoked token is unauthenticated: it touches no detector state
+                raise TokenInvalidError(f"token revoked: {revoked}")
         except TokenInvalidError as exc:
             violations.append(Violation(R_TOKEN_INVALID, "critical", 1, Decision.BLOCK, str(exc)))
 
@@ -650,9 +701,8 @@ class Shield:
             )
         return Evaluation(decision, findings, (time.perf_counter_ns() - t0) // 1000, request)
 
-    @staticmethod
     def _to_finding(
-        ctx: ToolCallContext, v: Violation, now_dt: datetime, enforced: bool
+        self, ctx: ToolCallContext, v: Violation, now_dt: datetime, enforced: bool
     ) -> M42Finding:
         return M42Finding(
             finding_id=str(uuid.uuid4()),
@@ -666,6 +716,7 @@ class Shield:
             tool_name=ctx.tool_name,
             detail=v.detail,
             observed_at=now_dt.astimezone(UTC),
+            policy_sha256=self.policy_fingerprint,
         )
 
     # ------------------------------------------------------------------------------
@@ -702,6 +753,7 @@ class Shield:
             "findings": [f.model_dump(mode="json") for f in evaluation.findings],
             "latency_us": evaluation.latency_us,
             "tool_outcome": outcome,
+            "policy_sha256": self.policy_fingerprint,
         }
         try:
             return cast(AuditRecord, self.audit.append(body))

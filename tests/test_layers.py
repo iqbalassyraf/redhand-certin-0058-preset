@@ -289,11 +289,10 @@ def test_loosen_allows_exactly_what_it_lists_and_is_recorded(tmp_path: Path) -> 
     )
     assert policy.hitl.thresholds["USD"] == Decimal("20000")
     assert policy.provenance is not None
-    assert policy.provenance.loosened == (
-        "hitl.thresholds.USD: 10000.00 -> 20000" if False else policy.provenance.loosened
-    )
-    assert any(item.startswith("hitl.thresholds.USD") for item in policy.provenance.loosened)
-    assert any(item.startswith("micro_tx.max_probes") for item in policy.provenance.loosened)
+    assert set(policy.provenance.loosened) == {
+        "hitl.thresholds.USD: 10000 -> 20000",
+        "micro_tx.max_probes: 2 -> 5",
+    }
 
 
 def test_wildcard_loosen_covers_a_whole_map(tmp_path: Path) -> None:

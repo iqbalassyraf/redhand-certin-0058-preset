@@ -1,0 +1,1053 @@
+{
+  "$defs": {
+    "AggregationPolicy": {
+      "additionalProperties": false,
+      "description": "Optional cross-currency aggregation using operator-supplied static rates.\n\nWith ``base_currency`` set, structuring and cumulative caps add up payments in every currency\nafter converting them to the base, so splitting a payout across currencies no longer evades\nthem. The rates are approximations the operator must review; a currency with no rate cannot be\nconverted and fails closed (it is judged in its own currency, which has no threshold).",
+      "properties": {
+        "base_currency": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z]{3}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Currency"
+        },
+        "rates": {
+          "description": "Units of base currency per one unit of the currency.",
+          "patternProperties": {
+            "^[A-Za-z]{3}$": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "title": "Rates",
+          "type": "object"
+        }
+      },
+      "title": "AggregationPolicy",
+      "type": "object"
+    },
+    "ApprovalPolicy": {
+      "additionalProperties": false,
+      "description": "Per-transaction step-up: signed, single-use human approvals bound to one transaction.",
+      "properties": {
+        "allow_legacy_step_up": {
+          "default": true,
+          "description": "DEPRECATED. Honour the run-wide hitl_step_up token claim as a step-up. Each use is reported as a finding. Set false once approvers issue per-transaction approvals.",
+          "title": "Allow Legacy Step Up",
+          "type": "boolean"
+        },
+        "issuer": {
+          "default": "redhand-approver",
+          "minLength": 1,
+          "title": "Issuer",
+          "type": "string"
+        },
+        "max_nonces": {
+          "default": 100000,
+          "minimum": 1,
+          "title": "Max Nonces",
+          "type": "integer"
+        },
+        "max_ttl_seconds": {
+          "default": 300,
+          "maximum": 3600,
+          "minimum": 1,
+          "title": "Max Ttl Seconds",
+          "type": "integer"
+        },
+        "nonce_journal_path": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Journal of spent nonces, replayed on startup so a restart keeps them spent.",
+          "title": "Nonce Journal Path"
+        },
+        "verifier_public_key_path": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Approver's Ed25519 public key. Must differ from the agent-token issuer's.",
+          "title": "Verifier Public Key Path"
+        }
+      },
+      "title": "ApprovalPolicy",
+      "type": "object"
+    },
+    "CumulativeCapPolicy": {
+      "additionalProperties": false,
+      "description": "Stage 2: slow drain. A rolling cap on what one run, and one subject, may move.",
+      "properties": {
+        "action": {
+          "default": "hitl_required",
+          "enum": [
+            "hitl_required",
+            "block"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "max_keys": {
+          "default": 100000,
+          "minimum": 1,
+          "title": "Max Keys",
+          "type": "integer"
+        },
+        "per_run": {
+          "patternProperties": {
+            "^[A-Za-z]{3}$": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "title": "Per Run",
+          "type": "object"
+        },
+        "per_subject": {
+          "patternProperties": {
+            "^[A-Za-z]{3}$": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "title": "Per Subject",
+          "type": "object"
+        },
+        "protected_tools": {
+          "default": [],
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Protected Tools",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "window_seconds": {
+          "default": 86400.0,
+          "exclusiveMinimum": 0,
+          "title": "Window Seconds",
+          "type": "number"
+        }
+      },
+      "title": "CumulativeCapPolicy",
+      "type": "object"
+    },
+    "Env": {
+      "enum": [
+        "prod",
+        "staging",
+        "test",
+        "dev"
+      ],
+      "title": "Env",
+      "type": "string"
+    },
+    "Exemption": {
+      "additionalProperties": false,
+      "description": "A time-limited, named, audited waiver of a human step-up requirement.",
+      "properties": {
+        "approved_by": {
+          "minLength": 1,
+          "title": "Approved By",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "match": {
+          "$ref": "#/$defs/ExemptionMatch"
+        },
+        "reason": {
+          "minLength": 10,
+          "title": "Reason",
+          "type": "string"
+        },
+        "rules": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Rules",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "starts_at": {
+          "format": "date-time",
+          "title": "Starts At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "rules",
+        "reason",
+        "approved_by",
+        "starts_at",
+        "expires_at",
+        "match"
+      ],
+      "title": "Exemption",
+      "type": "object"
+    },
+    "ExemptionMatch": {
+      "additionalProperties": false,
+      "description": "Which calls an exemption covers. Every given constraint must hold.",
+      "properties": {
+        "beneficiaries": {
+          "default": [],
+          "description": "Canonical payee ids; every payee of the call must be listed.",
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Beneficiaries",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "envs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Env"
+          },
+          "title": "Envs",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "subjects": {
+          "default": [],
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Subjects",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "tools": {
+          "default": [],
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Tools",
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "title": "ExemptionMatch",
+      "type": "object"
+    },
+    "HITLPolicy": {
+      "additionalProperties": false,
+      "description": "Stage 3: step-up requirement on settlement/disbursement endpoints.",
+      "properties": {
+        "protected_tools": {
+          "default": [],
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Protected Tools",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "thresholds": {
+          "description": "Per-currency amount strictly above which HITL step-up is required.",
+          "patternProperties": {
+            "^[A-Za-z]{3}$": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "title": "Thresholds",
+          "type": "object"
+        }
+      },
+      "title": "HITLPolicy",
+      "type": "object"
+    },
+    "MicroTxPolicy": {
+      "additionalProperties": false,
+      "description": "Stage 2: micro-transaction probing loop.",
+      "properties": {
+        "ceilings": {
+          "description": "Per-currency amount at or below which a payment counts as a probe.",
+          "patternProperties": {
+            "^[A-Za-z]{3}$": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "title": "Ceilings",
+          "type": "object"
+        },
+        "max_probes": {
+          "default": 2,
+          "description": "Trip when this many probes occur.",
+          "minimum": 1,
+          "title": "Max Probes",
+          "type": "integer"
+        },
+        "window_seconds": {
+          "default": 60.0,
+          "exclusiveMinimum": 0,
+          "title": "Window Seconds",
+          "type": "number"
+        }
+      },
+      "title": "MicroTxPolicy",
+      "type": "object"
+    },
+    "Mode": {
+      "description": "ENFORCE blocks; OBSERVE_ONLY (RedHand M4.3) emits findings but never blocks.",
+      "enum": [
+        "enforce",
+        "observe_only"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "NewBeneficiaryPolicy": {
+      "additionalProperties": false,
+      "description": "Stage 3: high-value disbursement to an unseen/untrusted beneficiary.",
+      "properties": {
+        "action": {
+          "default": "hitl_required",
+          "enum": [
+            "hitl_required",
+            "block"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "known_beneficiaries": {
+          "default": [],
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Known Beneficiaries",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "thresholds": {
+          "description": "Per-currency amount above which an unseen beneficiary triggers action.",
+          "patternProperties": {
+            "^[A-Za-z]{3}$": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "title": "Thresholds",
+          "type": "object"
+        }
+      },
+      "title": "NewBeneficiaryPolicy",
+      "type": "object"
+    },
+    "OffHoursPolicy": {
+      "additionalProperties": false,
+      "description": "Stage 4: low-monitoring windows (weekends, public holidays, outside business hours).",
+      "properties": {
+        "business_hours": {
+          "default": [
+            9,
+            18
+          ],
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Business Hours",
+          "type": "array"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "holidays": {
+          "default": [],
+          "items": {
+            "format": "date",
+            "type": "string"
+          },
+          "title": "Holidays",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "mandatory_hitl": {
+          "default": true,
+          "title": "Mandatory Hitl",
+          "type": "boolean"
+        },
+        "tighten_factor": {
+          "default": 0.5,
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Tighten Factor",
+          "type": "number"
+        },
+        "timezone": {
+          "default": "Asia/Kolkata",
+          "title": "Timezone",
+          "type": "string"
+        },
+        "weekend_days": {
+          "default": [
+            5,
+            6
+          ],
+          "items": {
+            "type": "integer"
+          },
+          "title": "Weekend Days",
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "title": "OffHoursPolicy",
+      "type": "object"
+    },
+    "PolicyProvenance": {
+      "additionalProperties": false,
+      "description": "Where a policy came from. Set only by the loader, never read from a policy file.",
+      "properties": {
+        "chain": {
+          "default": [],
+          "description": "Sources from the root policy to the overlay, with SHA-256.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Chain",
+          "type": "array"
+        },
+        "locked": {
+          "default": [],
+          "description": "Field paths no overlay may loosen, declared by the base.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Locked",
+          "type": "array"
+        },
+        "loosened": {
+          "default": [],
+          "description": "Base limits the overlay deliberately loosened (its loosen: list).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Loosened",
+          "type": "array"
+        }
+      },
+      "title": "PolicyProvenance",
+      "type": "object"
+    },
+    "RuleOverride": {
+      "additionalProperties": false,
+      "description": "Per-rule operator control: run a rule in shadow, switch it off, or re-label it.\n\nShadow (``mode: observe_only``) keeps the detector running and reports what it would have done\n(``enforced=False``), but the rule never blocks, quarantines, or asks for an approval. Only\ndetector rules can be overridden; identity, pinning, quarantine and approval rules cannot.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "mode": {
+          "$ref": "#/$defs/Mode",
+          "default": "enforce"
+        },
+        "severity": {
+          "anyOf": [
+            {
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Severity"
+        }
+      },
+      "title": "RuleOverride",
+      "type": "object"
+    },
+    "SequencePolicy": {
+      "additionalProperties": false,
+      "description": "Stage 2: reconnaissance-to-payment kill-chain sequence detection.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "min_recon_calls": {
+          "default": 3,
+          "minimum": 1,
+          "title": "Min Recon Calls",
+          "type": "integer"
+        },
+        "payment_tools": {
+          "default": [],
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Payment Tools",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "recon_tools": {
+          "default": [],
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Recon Tools",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "window_seconds": {
+          "default": 30.0,
+          "exclusiveMinimum": 0,
+          "title": "Window Seconds",
+          "type": "number"
+        }
+      },
+      "title": "SequencePolicy",
+      "type": "object"
+    },
+    "StructuringPolicy": {
+      "additionalProperties": false,
+      "description": "Stage 2: split-transaction structuring (smurfing) within a sliding window.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "max_keys": {
+          "default": 100000,
+          "description": "Most distinct windows kept; beyond it the call fails closed.",
+          "minimum": 1,
+          "title": "Max Keys",
+          "type": "integer"
+        },
+        "min_tx_count": {
+          "default": 2,
+          "minimum": 1,
+          "title": "Min Tx Count",
+          "type": "integer"
+        },
+        "protected_tools": {
+          "default": [],
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Protected Tools",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "scopes": {
+          "default": [
+            "run"
+          ],
+          "description": "What payments are aggregated by: the agent run, the token subject (across runs), and/or one payee (across runs; single-payee calls only).",
+          "items": {
+            "enum": [
+              "run",
+              "subject",
+              "beneficiary"
+            ],
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "thresholds": {
+          "description": "Per-currency cumulative amount above which multiple calls trip structuring.",
+          "patternProperties": {
+            "^[A-Za-z]{3}$": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "title": "Thresholds",
+          "type": "object"
+        },
+        "window_seconds": {
+          "default": 300.0,
+          "exclusiveMinimum": 0,
+          "title": "Window Seconds",
+          "type": "number"
+        }
+      },
+      "title": "StructuringPolicy",
+      "type": "object"
+    },
+    "TokenKeyConfig": {
+      "additionalProperties": false,
+      "description": "One agent-token verification key in a key ring (see ``crypto.KeyRing``).",
+      "properties": {
+        "kid": {
+          "minLength": 1,
+          "title": "Kid",
+          "type": "string"
+        },
+        "public_key_path": {
+          "format": "path",
+          "title": "Public Key Path",
+          "type": "string"
+        },
+        "retire_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tokens signed with this key stop verifying at this instant.",
+          "title": "Retire At"
+        }
+      },
+      "required": [
+        "kid",
+        "public_key_path"
+      ],
+      "title": "TokenKeyConfig",
+      "type": "object"
+    },
+    "ToolBinding": {
+      "additionalProperties": false,
+      "description": "Where one tool keeps its amount, currency and beneficiary(ies) in its arguments.\n\nA path that selects a list (``payments[*].amount``) makes the call a bulk call: amounts are\nsummed, beneficiaries are all judged, and currencies must agree or the currency is treated as\nunknown (fail-closed). If a bound path is absent, incomplete or ambiguous the field is\nunresolved, which the detectors already treat as fail-closed on protected tools.",
+      "properties": {
+        "amount": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "pattern": "^[A-Za-z_][A-Za-z0-9_-]*(\\[(\\*|\\d+)\\])?(\\.[A-Za-z_][A-Za-z0-9_-]*(\\[(\\*|\\d+)\\])?)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Amount"
+        },
+        "beneficiary": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "pattern": "^[A-Za-z_][A-Za-z0-9_-]*(\\[(\\*|\\d+)\\])?(\\.[A-Za-z_][A-Za-z0-9_-]*(\\[(\\*|\\d+)\\])?)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Beneficiary"
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "pattern": "^[A-Za-z_][A-Za-z0-9_-]*(\\[(\\*|\\d+)\\])?(\\.[A-Za-z_][A-Za-z0-9_-]*(\\[(\\*|\\d+)\\])?)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Currency"
+        },
+        "fixed_currency": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z]{3}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "For tools that take no currency argument (for example a domestic-only tool).",
+          "title": "Fixed Currency"
+        },
+        "max_items": {
+          "default": 1000,
+          "description": "Largest list a bound path may expand.",
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Max Items",
+          "type": "integer"
+        }
+      },
+      "title": "ToolBinding",
+      "type": "object"
+    },
+    "ToolBindingsPolicy": {
+      "additionalProperties": false,
+      "description": "Per-tool argument bindings, so money rules see the field a tool really uses.",
+      "properties": {
+        "legacy_fallback": {
+          "default": true,
+          "description": "Tools without a binding fall back to the conventional argument names (amount, currency, beneficiary). False means unbound tools resolve nothing.",
+          "title": "Legacy Fallback",
+          "type": "boolean"
+        },
+        "require_for_protected": {
+          "default": false,
+          "description": "Refuse to load a policy in which a protected tool has no binding. A protected tool is any tool named in hitl, structuring or sequence.payment_tools.",
+          "title": "Require For Protected",
+          "type": "boolean"
+        },
+        "tools": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ToolBinding"
+          },
+          "propertyNames": {
+            "minLength": 1
+          },
+          "title": "Tools",
+          "type": "object"
+        }
+      },
+      "title": "ToolBindingsPolicy",
+      "type": "object"
+    },
+    "VelocityPolicy": {
+      "additionalProperties": false,
+      "description": "Stage 2: per-second enumeration-burst detection, keyed by (agent run, tool).",
+      "properties": {
+        "max_calls": {
+          "default": 20,
+          "minimum": 1,
+          "title": "Max Calls",
+          "type": "integer"
+        },
+        "max_total_calls": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Calls across ALL tools per agent run in the window; stops tool rotation.",
+          "title": "Max Total Calls"
+        },
+        "window_seconds": {
+          "default": 1.0,
+          "exclusiveMinimum": 0,
+          "title": "Window Seconds",
+          "type": "number"
+        }
+      },
+      "title": "VelocityPolicy",
+      "type": "object"
+    }
+  },
+  "$id": "urn:redhand:shield:policy:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Declarative policy; loaded from ``presets/certin_ciad_2026_0058.yaml``.",
+  "properties": {
+    "aggregation": {
+      "$ref": "#/$defs/AggregationPolicy"
+    },
+    "approval": {
+      "$ref": "#/$defs/ApprovalPolicy"
+    },
+    "audience": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "If set, tokens must carry this aud claim (binds tokens to this service).",
+      "title": "Audience"
+    },
+    "audit_fsync": {
+      "default": false,
+      "title": "Audit Fsync",
+      "type": "boolean"
+    },
+    "audit_path": {
+      "default": "audit_trail.jsonl",
+      "format": "path",
+      "title": "Audit Path",
+      "type": "string"
+    },
+    "cumulative_cap": {
+      "$ref": "#/$defs/CumulativeCapPolicy"
+    },
+    "exemption_max_days": {
+      "default": 90,
+      "maximum": 365,
+      "minimum": 1,
+      "title": "Exemption Max Days",
+      "type": "integer"
+    },
+    "exemptions": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Exemption"
+      },
+      "title": "Exemptions",
+      "type": "array"
+    },
+    "hitl": {
+      "$ref": "#/$defs/HITLPolicy"
+    },
+    "issuer": {
+      "default": "redhand",
+      "minLength": 1,
+      "title": "Issuer",
+      "type": "string"
+    },
+    "max_token_ttl_seconds": {
+      "default": 3600,
+      "minimum": 1,
+      "title": "Max Token Ttl Seconds",
+      "type": "integer"
+    },
+    "micro_tx": {
+      "$ref": "#/$defs/MicroTxPolicy"
+    },
+    "mode": {
+      "$ref": "#/$defs/Mode",
+      "default": "enforce"
+    },
+    "new_beneficiary": {
+      "$ref": "#/$defs/NewBeneficiaryPolicy"
+    },
+    "off_hours": {
+      "$ref": "#/$defs/OffHoursPolicy"
+    },
+    "preset_id": {
+      "default": "certin_ciad_2026_0058",
+      "minLength": 1,
+      "title": "Preset Id",
+      "type": "string"
+    },
+    "preset_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Semantic version of the preset's content (bump on any change).",
+      "title": "Preset Version"
+    },
+    "provenance": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PolicyProvenance"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "quarantine_journal_path": {
+      "anyOf": [
+        {
+          "format": "path",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Quarantine Journal Path"
+    },
+    "quarantine_on_block": {
+      "default": true,
+      "title": "Quarantine On Block",
+      "type": "boolean"
+    },
+    "revocation_journal_path": {
+      "anyOf": [
+        {
+          "format": "path",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Revocation Journal Path"
+    },
+    "rules": {
+      "additionalProperties": {
+        "$ref": "#/$defs/RuleOverride"
+      },
+      "propertyNames": {
+        "minLength": 1
+      },
+      "title": "Rules",
+      "type": "object"
+    },
+    "schema_version": {
+      "default": 1,
+      "description": "Policy schema version; a newer one than supported is refused.",
+      "minimum": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "sequence": {
+      "$ref": "#/$defs/SequencePolicy"
+    },
+    "structuring": {
+      "$ref": "#/$defs/StructuringPolicy"
+    },
+    "token_keys": {
+      "default": [],
+      "description": "Key ring for rotation; tokens must carry a matching kid. Replaces the single verifier_public_key_path.",
+      "items": {
+        "$ref": "#/$defs/TokenKeyConfig"
+      },
+      "title": "Token Keys",
+      "type": "array"
+    },
+    "tool_bindings": {
+      "$ref": "#/$defs/ToolBindingsPolicy"
+    },
+    "velocity": {
+      "$ref": "#/$defs/VelocityPolicy"
+    },
+    "verifier_public_key_path": {
+      "anyOf": [
+        {
+          "format": "path",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Verifier Public Key Path"
+    }
+  },
+  "title": "PolicyConfig",
+  "type": "object"
+}

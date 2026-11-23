@@ -1,0 +1,866 @@
+{
+  "AgentQuarantinedError": {
+    "init": "(message:str, finding:M42Finding | None=None)",
+    "kind": "exception"
+  },
+  "AgentTokenIssuer": {
+    "init": "(signing_key:Ed25519PrivateKey, issuer:str='redhand', kid:str | None=None|kw)",
+    "kind": "class",
+    "methods": {
+      "generate_keypair": "()",
+      "mint": "(self:, subject:str|kw, agent_run_id:str|kw, env:Env|kw, allowed_tools:Sequence[str]|kw, ttl_seconds:int=900|kw, hitl_step_up:bool=False|kw, now:datetime | None=None|kw, audience:str | None=None|kw)"
+    }
+  },
+  "AgentTokenVerifier": {
+    "init": "(public_key:Ed25519PublicKey | KeyRing, issuer:str='redhand', max_ttl_seconds:int=3600|kw, clock:Callable[[], datetime]=<redhand_fintech_shield.crypto.utcnow>|kw, audience:str | None=None|kw)",
+    "kind": "class",
+    "methods": {
+      "key_fingerprint": "property",
+      "key_fingerprints": "property",
+      "verify": "(self:, token:str)"
+    }
+  },
+  "AggregationPolicy": {
+    "fields": {
+      "base_currency": {
+        "required": false
+      },
+      "rates": {
+        "required": false
+      }
+    },
+    "kind": "model"
+  },
+  "ApprovalIssuer": {
+    "init": "(signing_key:Ed25519PrivateKey, issuer:str='redhand-approver')",
+    "kind": "class",
+    "methods": {
+      "grant": "(self:, request:ApprovalRequest, approver:str|kw, ttl_seconds:int=120|kw, now:datetime | None=None|kw)"
+    }
+  },
+  "ApprovalPolicy": {
+    "fields": {
+      "allow_legacy_step_up": {
+        "required": false
+      },
+      "issuer": {
+        "required": false
+      },
+      "max_nonces": {
+        "required": false
+      },
+      "max_ttl_seconds": {
+        "required": false
+      },
+      "nonce_journal_path": {
+        "required": false
+      },
+      "verifier_public_key_path": {
+        "required": false
+      }
+    },
+    "kind": "model"
+  },
+  "ApprovalRequest": {
+    "fields": {
+      "agent_run_id": {
+        "required": true
+      },
+      "amount": {
+        "required": false
+      },
+      "arguments_digest": {
+        "required": false
+      },
+      "beneficiaries": {
+        "required": false
+      },
+      "currency": {
+        "required": false
+      },
+      "details": {
+        "required": false
+      },
+      "reasons": {
+        "required": false
+      },
+      "request_id": {
+        "required": true
+      },
+      "requested_at": {
+        "required": true
+      },
+      "target_env": {
+        "required": true
+      },
+      "tool_name": {
+        "required": true
+      }
+    },
+    "kind": "model"
+  },
+  "ApprovalVerifier": {
+    "init": "(public_key:Ed25519PublicKey, issuer:str='redhand-approver', max_ttl_seconds:int=300|kw, clock:Callable[[], datetime]=<redhand_fintech_shield.crypto.utcnow>|kw)",
+    "kind": "class",
+    "methods": {
+      "key_fingerprint": "property",
+      "key_fingerprints": "property",
+      "verify": "(self:, approval:str)"
+    }
+  },
+  "AuditChainError": {
+    "init": "(message:str, finding:M42Finding | None=None)",
+    "kind": "exception"
+  },
+  "AuditLog": {
+    "init": "(path:str | Path, fsync:bool=False|kw, rotate_bytes:int | None=None|kw)",
+    "kind": "class",
+    "methods": {
+      "append": "(self:, body:dict[str, Any])",
+      "close": "(self:)",
+      "path": "property",
+      "rotate": "(self:)",
+      "tail_hash": "property",
+      "verify_chain": "(paths:str | Path | Sequence[str | Path], expected_tail_hash:str | None=None|kw)"
+    }
+  },
+  "AuditLogBackend": {
+    "kind": "protocol",
+    "methods": {
+      "append": "(self:, body:dict[str, Any])",
+      "close": "(self:)",
+      "tail_hash": "property"
+    }
+  },
+  "AuditRecord": {
+    "fields": {
+      "context": {
+        "required": true
+      },
+      "decision": {
+        "required": true
+      },
+      "findings": {
+        "required": true
+      },
+      "latency_us": {
+        "required": true
+      },
+      "mode": {
+        "required": true
+      },
+      "policy_sha256": {
+        "required": false
+      },
+      "prev_hash": {
+        "required": true
+      },
+      "record_hash": {
+        "required": true
+      },
+      "seq": {
+        "required": true
+      },
+      "tool_outcome": {
+        "required": true
+      },
+      "ts": {
+        "required": true
+      }
+    },
+    "kind": "model"
+  },
+  "ChainVerificationReport": {
+    "init": "(ok:bool, files_checked:int, records_checked:int, tail_hash:str, anchored_to:str | None=None, failure_file:str | None=None, failure_line:int | None=None, failure_reason:str | None=None, policy_fingerprints:tuple[str, ...]=(), unstamped_records:int=0)",
+    "kind": "class",
+    "methods": {}
+  },
+  "Clock": {
+    "kind": "protocol",
+    "methods": {
+      "now": "(self:)"
+    }
+  },
+  "CumulativeCapError": {
+    "init": "(message:str, finding:M42Finding | None=None)",
+    "kind": "exception"
+  },
+  "CumulativeCapPolicy": {
+    "fields": {
+      "action": {
+        "required": false
+      },
+      "enabled": {
+        "required": false
+      },
+      "max_keys": {
+        "required": false
+      },
+      "per_run": {
+        "required": false
+      },
+      "per_subject": {
+        "required": false
+      },
+      "protected_tools": {
+        "required": false
+      },
+      "window_seconds": {
+        "required": false
+      }
+    },
+    "kind": "model"
+  },
+  "Decision": {
+    "kind": "enum",
+    "members": {
+      "ALLOW": "allow",
+      "BLOCK": "block",
+      "HITL_REQUIRED": "hitl_required"
+    }
+  },
+  "Env": {
+    "kind": "enum",
+    "members": {
+      "DEV": "dev",
+      "PROD": "prod",
+      "STAGING": "staging",
+      "TEST": "test"
+    }
+  },
+  "Evaluation": {
+    "init": "(decision:Decision, findings:list[M42Finding], latency_us:int, approval_request:ApprovalRequest | None=None)",
+    "kind": "class",
+    "methods": {
+      "primary_finding": "(self:)"
+    }
+  },
+  "Exemption": {
+    "fields": {
+      "approved_by": {
+        "required": true
+      },
+      "expires_at": {
+        "required": true
+      },
+      "id": {
+        "required": true
+      },
+      "match": {
+        "required": true
+      },
+      "reason": {
+        "required": true
+      },
+      "rules": {
+        "required": true
+      },
+      "starts_at": {
+        "required": true
+      }
+    },
+    "kind": "model"
+  },
+  "ExemptionMatch": {
+    "fields": {
+      "beneficiaries": {
+        "required": false
+      },
+      "envs": {
+        "required": false
+      },
+      "subjects": {
+        "required": false
+      },
+      "tools": {
+        "required": false
+      }
+    },
+    "kind": "model"
+  },
+  "HITLRequiredError": {
+    "init": "(message:str, finding:M42Finding | None=None)",
+    "kind": "exception"
+  },
+  "HashChainedAuditLog": {
+    "init": "(path:str | Path, fsync:bool=False|kw, rotate_bytes:int | None=None|kw)",
+    "kind": "class",
+    "methods": {
+      "append": "(self:, body:dict[str, Any])",
+      "close": "(self:)",
+      "path": "property",
+      "rotate": "(self:)",
+      "tail_hash": "property",
+      "verify_chain": "(paths:str | Path | Sequence[str | Path], expected_tail_hash:str | None=None|kw)"
+    }
+  },
+  "InMemoryWindowStore": {
+    "init": "(max_keys:Mapping[str, int] | None=None|kw, sweep_every:int=256|kw, sweep_batch:int=256|kw)",
+    "kind": "class",
+    "methods": {
+      "add": "(self:, namespace:str, key:tuple[str, ...], now:float, amount:Decimal, window:float|kw, maxlen:int|kw)",
+      "count": "(self:, namespace:str, key:tuple[str, ...], now:float, window:float|kw)",
+      "has_room": "(self:, namespace:str, keys:Sequence[tuple[str, ...]], now:float, window:float|kw)",
+      "hit": "(self:, namespace:str, key:tuple[str, ...], now:float, window:float|kw, maxlen:int|kw)",
+      "snapshot": "(self:, namespace:str, key:tuple[str, ...], now:float, window:float|kw)"
+    }
+  },
+  "KeyRing": {
+    "init": "(keys:Sequence[TokenKey])",
+    "kind": "class",
+    "methods": {
+      "fingerprints": "property",
+      "get": "(self:, kid:str)"
+    }
+  },
+  "M42Finding": {
+    "fields": {
+      "agent_run_id": {
+        "required": true
+      },
+      "decision": {
+        "required": true
+      },
+      "detail": {
+        "required": true
+      },
+      "enforced": {
+        "required": true
+      },
+      "finding_id": {
+        "required": true
+      },
+      "observed_at": {
+        "required": true
+      },
+      "policy_sha256": {
+        "required": false
+      },
+      "rule_id": {
+        "required": true
+      },
+      "severity": {
+        "required": true
+      },
+      "stage": {
+        "required": true
+      },
+      "tool_name": {
+        "required": true
+      },
+      "would_have_blocked": {
+        "required": true
+      }
+    },
+    "kind": "model"
+  },
+  "MCPGateway": {
+    "init": "(shield:Shield, executor:ToolExecutor | dict[str, Callable[..., Any]] | None=None, tools:Sequence[ToolDefinition] | None=None, default_env:Env=<Env.PROD: 'prod'>|kw, server_name:str='redhand-fintech-shield-gateway'|kw, server_version:str='0.1.0'|kw, error_mode:Literal['mcp', 'jsonrpc']='mcp'|kw)",
+    "kind": "class",
+    "methods": {
+      "dispatch_request": "(self:, method:str, params:dict[str, Any], req_id:Any)",
+      "handle_message": "(self:, message:str | dict[str, Any])",
+      "register_tool": "(self:, tool:ToolDefinition | str, handler:Callable[..., Any] | None=None, description:str=''|kw, input_schema:dict[str, Any] | None=None|kw)",
+      "serve_stdio": "(self:, reader:asyncio.StreamReader | None=None, writer:asyncio.StreamWriter | None=None)",
+      "serve_streams": "(self:, reader:asyncio.StreamReader, writer:asyncio.StreamWriter)"
+    }
+  },
+  "MicroTxProbeError": {
+    "init": "(message:str, finding:M42Finding | None=None)",
+    "kind": "exception"
+  },
+  "MissingContextError": {
+    "init": "(message:str, finding:M42Finding | None=None)",
+    "kind": "exception"
+  },
+  "Mode": {
+    "kind": "enum",
+    "members": {
+      "ENFORCE": "enforce",
+      "OBSERVE_ONLY": "observe_only"
+    }
+  },
+  "MonotonicClock": {
+    "kind": "protocol",
+    "methods": {
+      "monotonic": "(self:)"
+    }
+  },
+  "NewBeneficiaryError": {
+    "init": "(message:str, finding:M42Finding | None=None)",
+    "kind": "exception"
+  },
+  "NonceRegistry": {
+    "init": "(journal_path:Path | None=None, max_entries:int=100000|kw, clock:Callable[[], datetime]=<redhand_fintech_shield.crypto.utcnow>|kw)",
+    "kind": "class",
+    "methods": {
+      "consume": "(self:, nonce:str, expires_at:int)"
+    }
+  },
+  "NonceStore": {
+    "kind": "protocol",
+    "methods": {
+      "consume": "(self:, nonce:str, expires_at:int)"
+    }
+  },
+  "NullTelemetrySink": {
+    "init": "()",
+    "kind": "class",
+    "methods": {
+      "emit": "(self:, finding:M42Finding)"
+    }
+  },
+  "PolicyConfig": {
+    "fields": {
+      "aggregation": {
+        "required": false
+      },
+      "approval": {
+        "required": false
+      },
+      "audience": {
+        "required": false
+      },
+      "audit_fsync": {
+        "required": false
+      },
+      "audit_path": {
+        "required": false
+      },
+      "cumulative_cap": {
+        "required": false
+      },
+      "exemption_max_days": {
+        "required": false
+      },
+      "exemptions": {
+        "required": false
+      },
+      "hitl": {
+        "required": false
+      },
+      "issuer": {
+        "required": false
+      },
+      "max_token_ttl_seconds": {
+        "required": false
+      },
+      "micro_tx": {
+        "required": false
+      },
+      "mode": {
+        "required": false
+      },
+      "new_beneficiary": {
+        "required": false
+      },
+      "off_hours": {
+        "required": false
+      },
+      "preset_id": {
+        "required": false
+      },
+      "preset_version": {
+        "required": false
+      },
+      "provenance": {
+        "required": false
+      },
+      "quarantine_journal_path": {
+        "required": false
+      },
+      "quarantine_on_block": {
+        "required": false
+      },
+      "revocation_journal_path": {
+        "required": false
+      },
+      "rules": {
+        "required": false
+      },
+      "schema_version": {
+        "required": false
+      },
+      "sequence": {
+        "required": false
+      },
+      "structuring": {
+        "required": false
+      },
+      "token_keys": {
+        "required": false
+      },
+      "tool_bindings": {
+        "required": false
+      },
+      "velocity": {
+        "required": false
+      },
+      "verifier_public_key_path": {
+        "required": false
+      }
+    },
+    "kind": "model"
+  },
+  "PolicyLoadError": {
+    "init": "(message:str, finding:M42Finding | None=None)",
+    "kind": "exception"
+  },
+  "PolicyProvenance": {
+    "fields": {
+      "chain": {
+        "required": false
+      },
+      "locked": {
+        "required": false
+      },
+      "loosened": {
+        "required": false
+      }
+    },
+    "kind": "model"
+  },
+  "PresetManifest": {
+    "fields": {
+      "advisories": {
+        "required": true
+      },
+      "extension_points": {
+        "required": true
+      },
+      "manifest_version": {
+        "required": false
+      },
+      "package_version": {
+        "required": true
+      },
+      "policy_sha256": {
+        "required": true
+      },
+      "preset_id": {
+        "required": true
+      },
+      "preset_version": {
+        "required": true
+      },
+      "rules": {
+        "required": true
+      },
+      "schema_version": {
+        "required": true
+      }
+    },
+    "kind": "model"
+  },
+  "QuarantineBackend": {
+    "kind": "protocol",
+    "methods": {
+      "add": "(self:, agent_run_id:str, reason:str, ts:datetime | None=None)",
+      "is_quarantined": "(self:, agent_run_id:str)",
+      "reason": "(self:, agent_run_id:str)"
+    }
+  },
+  "QuarantineRegistry": {
+    "init": "(journal_path:Path | None=None)",
+    "kind": "class",
+    "methods": {
+      "add": "(self:, agent_run_id:str, reason:str, ts:datetime | None=None)",
+      "is_quarantined": "(self:, agent_run_id:str)",
+      "reason": "(self:, agent_run_id:str)",
+      "snapshot": "(self:)"
+    }
+  },
+  "QuarantineTracker": {
+    "init": "(journal_path:Path | None=None)",
+    "kind": "class",
+    "methods": {
+      "add": "(self:, agent_run_id:str, reason:str, ts:datetime | None=None)",
+      "is_quarantined": "(self:, agent_run_id:str)",
+      "reason": "(self:, agent_run_id:str)",
+      "snapshot": "(self:)"
+    }
+  },
+  "RULE_CATALOG": {
+    "kind": "constant",
+    "type": "tuple"
+  },
+  "RevocationRegistry": {
+    "init": "(journal_path:Path | None=None, clock:Callable[[], datetime]=<redhand_fintech_shield.crypto.utcnow>|kw, poll_seconds:float=1.0|kw, poll_clock:Callable[[], float]=<time.monotonic>|kw)",
+    "kind": "class",
+    "methods": {
+      "reason": "(self:, jti:str, subject:str, agent_run_id:str)",
+      "revoke": "(self:, kind:Kind, value:str, reason:str, expires_at:int | None=None)"
+    }
+  },
+  "RevocationStore": {
+    "kind": "protocol",
+    "methods": {
+      "reason": "(self:, jti:str, subject:str, agent_run_id:str)",
+      "revoke": "(self:, kind:Literal['jti', 'subject', 'run'], value:str, reason:str, expires_at:int | None=None)"
+    }
+  },
+  "RuleInfo": {
+    "init": "(id:str, stage:int, severity:Literal['low', 'medium', 'high', 'critical'], decision:Literal['block', 'hitl_required', 'allow', 'varies'], advisories:tuple[str, ...], summary:str, rationale:str)",
+    "kind": "class",
+    "methods": {
+      "exemptible": "property",
+      "name": "property",
+      "overridable": "property"
+    }
+  },
+  "RuleOverride": {
+    "fields": {
+      "enabled": {
+        "required": false
+      },
+      "mode": {
+        "required": false
+      },
+      "severity": {
+        "required": false
+      }
+    },
+    "kind": "model"
+  },
+  "SequenceViolationError": {
+    "init": "(message:str, finding:M42Finding | None=None)",
+    "kind": "exception"
+  },
+  "Shield": {
+    "init": "(policy:PolicyConfig, verifier:AgentTokenVerifier | None=None, audit:AuditLogBackend | None=None|kw, audit_log:AuditLogBackend | None=None|kw, quarantine:QuarantineBackend | None=None|kw, quarantine_tracker:QuarantineBackend | None=None|kw, telemetry_sink:TelemetrySink | None=None|kw, approval_verifier:ApprovalVerifier | None=None|kw, nonce_store:NonceStore | None=None|kw, revocations:RevocationStore | None=None|kw, window_store:WindowStore | None=None|kw, clock:Clock | Callable[[], datetime]=<redhand_fintech_shield.crypto.utcnow>|kw, monotonic:MonotonicClock | Callable[[], float]=<time.monotonic>|kw)",
+    "kind": "class",
+    "methods": {
+      "audit_log": "property",
+      "close": "(self:)",
+      "evaluate": "(self:, ctx:ToolCallContext)",
+      "guard": "(self:, fn:F, ctx_arg:str='ctx'|kw)",
+      "quarantine_tracker": "property"
+    }
+  },
+  "ShieldError": {
+    "init": "(message:str, finding:M42Finding | None=None)",
+    "kind": "exception"
+  },
+  "StructuringError": {
+    "init": "(message:str, finding:M42Finding | None=None)",
+    "kind": "exception"
+  },
+  "TelemetrySink": {
+    "kind": "protocol",
+    "methods": {
+      "emit": "(self:, finding:M42Finding)"
+    }
+  },
+  "TokenClaims": {
+    "fields": {
+      "agent_run_id": {
+        "required": true
+      },
+      "allowed_tools": {
+        "required": true
+      },
+      "aud": {
+        "required": false
+      },
+      "env": {
+        "required": true
+      },
+      "exp": {
+        "required": true
+      },
+      "hitl_step_up": {
+        "required": true
+      },
+      "iat": {
+        "required": true
+      },
+      "iss": {
+        "required": true
+      },
+      "jti": {
+        "required": true
+      },
+      "sub": {
+        "required": true
+      }
+    },
+    "kind": "model"
+  },
+  "TokenInvalidError": {
+    "init": "(message:str, finding:M42Finding | None=None)",
+    "kind": "exception"
+  },
+  "TokenKey": {
+    "init": "(kid:str, public_key:Ed25519PublicKey, retire_at:datetime | None=None)",
+    "kind": "class",
+    "methods": {}
+  },
+  "TokenKeyConfig": {
+    "fields": {
+      "kid": {
+        "required": true
+      },
+      "public_key_path": {
+        "required": true
+      },
+      "retire_at": {
+        "required": false
+      }
+    },
+    "kind": "model"
+  },
+  "TokenPivotError": {
+    "init": "(message:str, finding:M42Finding | None=None)",
+    "kind": "exception"
+  },
+  "ToolBinding": {
+    "fields": {
+      "amount": {
+        "required": false
+      },
+      "beneficiary": {
+        "required": false
+      },
+      "currency": {
+        "required": false
+      },
+      "fixed_currency": {
+        "required": false
+      },
+      "max_items": {
+        "required": false
+      }
+    },
+    "kind": "model"
+  },
+  "ToolBindingsPolicy": {
+    "fields": {
+      "legacy_fallback": {
+        "required": false
+      },
+      "require_for_protected": {
+        "required": false
+      },
+      "tools": {
+        "required": false
+      }
+    },
+    "kind": "model"
+  },
+  "ToolCallContext": {
+    "fields": {
+      "agent_run_id": {
+        "required": true
+      },
+      "amount": {
+        "required": false
+      },
+      "approval": {
+        "required": false
+      },
+      "arguments_digest": {
+        "required": false
+      },
+      "beneficiaries": {
+        "required": false
+      },
+      "beneficiary": {
+        "required": false
+      },
+      "currency": {
+        "required": false
+      },
+      "metadata": {
+        "required": false
+      },
+      "target_env": {
+        "required": true
+      },
+      "timestamp": {
+        "required": false
+      },
+      "token": {
+        "required": true
+      },
+      "tool_name": {
+        "required": true
+      }
+    },
+    "kind": "model"
+  },
+  "ToolDefinition": {
+    "fields": {
+      "description": {
+        "required": false
+      },
+      "inputSchema": {
+        "required": false
+      },
+      "name": {
+        "required": true
+      }
+    },
+    "kind": "model"
+  },
+  "ToolExecutor": {
+    "kind": "protocol",
+    "methods": {
+      "aexecute": "(self:, tool_name:str, arguments:dict[str, Any], context:dict[str, Any] | None=None)",
+      "execute": "(self:, tool_name:str, arguments:dict[str, Any], context:dict[str, Any] | None=None)"
+    }
+  },
+  "ToolNotPinnedError": {
+    "init": "(message:str, finding:M42Finding | None=None)",
+    "kind": "exception"
+  },
+  "VelocityExceededError": {
+    "init": "(message:str, finding:M42Finding | None=None)",
+    "kind": "exception"
+  },
+  "WindowStore": {
+    "kind": "protocol",
+    "methods": {
+      "add": "(self:, namespace:str, key:tuple[str, ...], now:float, amount:Decimal, window:float|kw, maxlen:int|kw)",
+      "count": "(self:, namespace:str, key:tuple[str, ...], now:float, window:float|kw)",
+      "has_room": "(self:, namespace:str, keys:Sequence[tuple[str, ...]], now:float, window:float|kw)",
+      "hit": "(self:, namespace:str, key:tuple[str, ...], now:float, window:float|kw, maxlen:int|kw)",
+      "snapshot": "(self:, namespace:str, key:tuple[str, ...], now:float, window:float|kw)"
+    }
+  },
+  "WindowStoreFull": {
+    "init": "(unavailable)",
+    "kind": "exception"
+  },
+  "__version__": {
+    "kind": "constant",
+    "type": "str"
+  },
+  "adapters": {
+    "kind": "constant",
+    "type": "module"
+  },
+  "default_preset_path": {
+    "kind": "function",
+    "signature": "()"
+  },
+  "extract_tool_call_context": {
+    "kind": "function",
+    "signature": "(tool_name:str, arguments:dict[str, Any], meta:dict[str, Any] | None=None, default_env:Env=<Env.PROD: 'prod'>, bindings:ToolBindingsPolicy | None=None)"
+  },
+  "get_manifest": {
+    "kind": "function",
+    "signature": "()"
+  },
+  "load_policy": {
+    "kind": "function",
+    "signature": "(path:str | Path | None=None)"
+  },
+  "policy_fingerprint": {
+    "kind": "function",
+    "signature": "(policy:PolicyConfig)"
+  },
+  "redhand_guard": {
+    "kind": "function",
+    "signature": "(shield:Shield, ctx_arg:str='ctx'|kw)"
+  }
+}

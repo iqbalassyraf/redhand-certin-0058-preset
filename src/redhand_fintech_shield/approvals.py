@@ -144,6 +144,10 @@ class ApprovalVerifier:
         self._clock = clock
 
     @property
+    def key_fingerprints(self) -> frozenset[str]:
+        return frozenset({self.key_fingerprint})
+
+    @property
     def key_fingerprint(self) -> str:
         raw = self._key.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
         return hashlib.sha256(raw).hexdigest()
