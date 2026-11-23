@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home · redhand-certin-0058-preset</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top"><span class="brand">redhand-certin-0058-preset</span><nav><a href="index.html" aria-current="page">Home</a><a href="quickstart.html">Quickstart</a><a href="architecture.html">Architecture</a><a href="threat-model.html">Threat model</a><a href="rules.html">Rule catalog</a><a href="integration.html">Integration</a><a href="detection-results.html">Detection results</a></nav></header>
+<main>
+<h1 id="redhand-certin-0058-preset">redhand-certin-0058-preset</h1>
+<p>A deterministic, fail-closed runtime interceptor for AI-agent tool calls in fintech and BFSI environments, built against CERT-In advisories <strong>CIAD-2026-0058</strong> (CRAFTY FALCON) and <strong>CIAD-2026-0049</strong> (AI agents as attack vectors). It sits on the tool-execution boundary, so a manipulated agent cannot reach a payment tool except through it. <strong>No model is in the decision path.</strong></p>
+<h2 id="start-here">Start here</h2>
+<ol><li><a href="quickstart.html">Quickstart</a>: from <code>pip install</code> to a protected agent in about two minutes.</li><li><a href="architecture.html">Architecture</a>: how a call flows through the shield.</li><li><a href="threat-model.html">Threat model</a>: what is defended, and what is not.</li><li><a href="rules.html">Rule catalog</a>: every rule, its severity, and whether it can be tuned or waived.</li><li><a href="integration.html">Integration</a>: manifest, schemas, key rotation, shared detector state.</li><li><a href="detection-results.html">Detection results</a>: the replay corpus numbers, regenerated from the repo.</li></ol>
+<h2 id="what-it-gives-you">What it gives you</h2>
+<ul><li><strong>Pinned identity:</strong> Ed25519 run tokens bound to one run, one environment and a fixed tool list.</li><li><strong>Behavioural breakers:</strong> micro-transaction probing, velocity, recon-to-payment sequences, structuring across runs, payees and currencies, rolling cumulative caps.</li><li><strong>Human approval where it counts:</strong> per-transaction signed approvals with single-use nonces.</li><li><strong>Evidence:</strong> a SHA-256 hash-chained audit log, verifiable offline, plus an HTML evidence report.</li><li><strong>A safe rollout path:</strong> observe-only mode records <code>would_have_blocked</code> before you enforce.</li></ul>
+<h2 id="honest-limits">Honest limits</h2>
+<p>It is an in-process control: a host that is fully compromised can bypass it, so run tools behind the out-of-process gateway or a sandbox. The <a href="threat-model.html">threat model</a> lists every limit.</p>
+</main>
+<footer>Generated from the repository's Markdown by <code>scripts/build_docs.py</code>. Source: <a href="https://github.com/iqbalassyraf/redhand-certin-0058-preset">https://github.com/iqbalassyraf/redhand-certin-0058-preset</a></footer>
+</body>
+</html>

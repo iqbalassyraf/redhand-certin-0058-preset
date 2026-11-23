@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quickstart · redhand-certin-0058-preset</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top"><span class="brand">redhand-certin-0058-preset</span><nav><a href="index.html">Home</a><a href="quickstart.html" aria-current="page">Quickstart</a><a href="architecture.html">Architecture</a><a href="threat-model.html">Threat model</a><a href="rules.html">Rule catalog</a><a href="integration.html">Integration</a><a href="detection-results.html">Detection results</a></nav></header>
+<main>
+<h1 id="quickstart-from-pip-install-to-a-protected-agent">Quickstart: from <code>pip install</code> to a protected agent</h1>
+<p>About two minutes. Every code block marked <code>python</code> or <code>bash run</code> below is executed by the test suite (<code>tests/test_quickstart.py</code>), so this page cannot drift from the package.</p>
+<h2 id="1-install">1. Install</h2>
+<pre class="lang-bash"><code>pip install redhand-certin-0058-preset</code></pre>
+<p>Python 3.11 or newer. The decision path makes no network calls.</p>
+<h2 id="2-protect-a-tool">2. Protect a tool</h2>
+<p>A <em>run token</em> is an Ed25519-signed grant naming the environment, the single agent run and the tools that run may call. The shield checks it on every call, before your tool executes.</p>
+<pre class="lang-python"><code>from decimal import Decimal
+
+from redhand_fintech_shield import (
+    AgentTokenIssuer,
+    AgentTokenVerifier,
+    Env,
+    HITLRequiredError,
+    HashChainedAuditLog,
+    Shield,
+    ToolCallContext,
+    load_policy,
+    redhand_guard,
+)
+
+private, public = AgentTokenIssuer.generate_keypair()
+audit = HashChainedAuditLog(&quot;audit.jsonl&quot;)
+shield = Shield(load_policy(), AgentTokenVerifier(public), audit=audit)
+
+
+@redhand_guard(shield)
+def settle_merchant(merchant_id: str, *, ctx: ToolCallContext) -&gt; str:
+    return f&quot;settled {merchant_id}&quot;
+
+
+token = AgentTokenIssuer(private).mint(
+    subject=&quot;svc-settlement-agent&quot;,
+    agent_run_id=&quot;run-1&quot;,
+    env=Env.PROD,
+    allowed_tools=[&quot;settle_merchant&quot;],
+    ttl_seconds=900,
+)
+
+
+def call(amount: str) -&gt; str:
+    ctx = ToolCallContext(
+        agent_run_id=&quot;run-1&quot;,
+        tool_name=&quot;settle_merchant&quot;,
+        target_env=Env.PROD,
+        token=token,
+        amount=Decimal(amount),
+        currency=&quot;USD&quot;,
+    )
+    return settle_merchant(&quot;m-1&quot;, ctx=ctx)</code></pre>
+<h2 id="3-see-it-allow-then-block">3. See it allow, then block</h2>
+<pre class="lang-python"><code>print(call(&quot;25.00&quot;))  # inside policy: the tool runs
+
+try:
+    call(&quot;25000&quot;)  # above USD 10,000 on a protected tool: needs a signed approval
+except HITLRequiredError as exc:
+    print(&quot;blocked:&quot;, exc.finding.rule_id)  # the tool body never ran
+
+audit.close()</code></pre>
+<p>Expected output:</p>
+<pre class="lang-text"><code>settled m-1
+blocked: CIAD-2026-0058.R3.hitl_required</code></pre>
+<h2 id="4-verify-the-evidence">4. Verify the evidence</h2>
+<p>Every decision, allowed or blocked, was appended to a SHA-256 hash chain. Verify it offline, with no key and no network:</p>
+<pre class="lang-bash"><code>redhand-shield verify-audit audit.jsonl
+redhand-shield fingerprint</code></pre>
+<p>Edit any line of <code>audit.jsonl</code> and the first command fails at that line.</p>
+<h2 id="where-next">Where next</h2>
+<ul><li><a href="architecture.html">Architecture</a>: how a call flows through the shield.</li><li><a href="threat-model.html">Threat model</a>: what is and is not defended.</li><li><a href="integration.html">Integration</a>: manifest, schemas, key rotation, shared detector state.</li></ul>
+</main>
+<footer>Generated from the repository's Markdown by <code>scripts/build_docs.py</code>. Source: <a href="https://github.com/iqbalassyraf/redhand-certin-0058-preset">https://github.com/iqbalassyraf/redhand-certin-0058-preset</a></footer>
+</body>
+</html>

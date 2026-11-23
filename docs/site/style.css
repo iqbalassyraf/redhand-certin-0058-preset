@@ -1,0 +1,31 @@
+:root{--bg:#fff;--fg:#1b1f24;--muted:#57606a;--line:#d0d7de;--code:#f6f8fa;--link:#0b5cad;--accent:#0b5cad;--ok:#1a7f37;--bad:#cf222e}
+@media (prefers-color-scheme:dark){:root{--bg:#0d1117;--fg:#e6edf3;--muted:#9198a1;--line:#30363d;--code:#161b22;--link:#58a6ff;--accent:#58a6ff;--ok:#3fb950;--bad:#f85149}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:var(--link)}
+header.top{border-bottom:1px solid var(--line);padding:12px 16px}
+header.top .brand{font-weight:700;margin-right:16px}
+nav a{margin-right:14px;text-decoration:none;white-space:nowrap;display:inline-block;padding:2px 0}
+nav a[aria-current=page]{border-bottom:2px solid var(--accent);font-weight:600}
+main{max-width:900px;margin:0 auto;padding:16px 16px 64px}
+h1,h2,h3{line-height:1.25}
+h2{margin-top:2em;border-bottom:1px solid var(--line);padding-bottom:4px}
+code{background:var(--code);padding:1px 5px;border-radius:4px;font:0.9em ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
+pre{background:var(--code);border:1px solid var(--line);border-radius:6px;padding:12px;overflow-x:auto}
+pre code{background:none;padding:0;overflow-wrap:normal}
+.tablewrap{overflow-x:auto;margin:1em 0}
+table{border-collapse:collapse;min-width:100%}
+th,td{border:1px solid var(--line);padding:6px 10px;text-align:left;vertical-align:top}
+th{background:var(--code)}
+blockquote{margin:1em 0;padding:0 1em;border-left:4px solid var(--line);color:var(--muted)}
+.figure{margin:1.5em 0;overflow-x:auto}
+.figure svg{width:100%;height:auto;min-width:560px}
+.figure .box{fill:var(--code);stroke:var(--line);stroke-width:1.5}
+.figure .core{fill:none;stroke:var(--accent);stroke-width:2;stroke-dasharray:6 4}
+.figure .ok{fill:var(--code);stroke:var(--ok);stroke-width:2}
+.figure .bad{fill:var(--code);stroke:var(--bad);stroke-width:2}
+.figure .ln{stroke:var(--muted);stroke-width:2;fill:none}
+.figure .ah{fill:var(--muted)}
+.figure .t{fill:var(--fg);font:600 14px system-ui,sans-serif}
+.figure .s{fill:var(--muted);font:12px system-ui,sans-serif}
+footer{max-width:900px;margin:0 auto;padding:16px;color:var(--muted);font-size:14px}
