@@ -74,7 +74,7 @@ class MCPGateway:
         *,
         default_env: Env = Env.PROD,
         server_name: str = "redhand-fintech-shield-gateway",
-        server_version: str = "0.1.0",
+        server_version: str = "0.2.0",
         error_mode: Literal["mcp", "jsonrpc"] = "mcp",
     ) -> None:
         self.shield = shield

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -43,6 +44,13 @@ def test_exact_numbers_match_the_generated_detection_results() -> None:
     assert nums["package_version"] == package.__version__
 
 
+measuring = pytest.mark.skipif(
+    bool(os.environ.get("REDHAND_RELEASE_MEASURING")),
+    reason="--measure is recording the numbers these gates compare against",
+)
+
+
+@measuring
 def test_committed_announcement_matches_a_fresh_render() -> None:
     assert rn.main(["--render", "--check"]) == 0, "run: python scripts/release_numbers.py --render"
 
@@ -92,6 +100,7 @@ def test_every_placeholder_is_known_and_filled() -> None:
     assert "{{" not in (ROOT / "docs" / "announcement.md").read_text("utf-8")
 
 
+@measuring
 def test_measurements_were_recorded_for_this_version() -> None:
     data = json.loads(rn.MEASUREMENTS.read_text("utf-8"))
     assert data["recorded_for_version"] == package.__version__, (

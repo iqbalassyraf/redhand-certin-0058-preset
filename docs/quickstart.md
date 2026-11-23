@@ -17,6 +17,7 @@ A *run token* is an Ed25519-signed grant naming the environment, the single agen
 tools that run may call. The shield checks it on every call, before your tool executes.
 
 ```python
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from redhand_fintech_shield import (
@@ -33,7 +34,11 @@ from redhand_fintech_shield import (
 
 private, public = AgentTokenIssuer.generate_keypair()
 audit = HashChainedAuditLog("audit.jsonl")
-shield = Shield(load_policy(), AgentTokenVerifier(public), audit=audit)
+# The preset tightens limits outside business hours, on weekends and on holidays (rule R4).
+# Pinning the clock to a weekday morning (IST) makes this walkthrough behave the same at any
+# hour; in production, leave `clock=` out and the shield uses the real time.
+weekday_morning = lambda: datetime(2026, 11, 25, 5, 0, tzinfo=UTC)  # noqa: E731
+shield = Shield(load_policy(), AgentTokenVerifier(public), audit=audit, clock=weekday_morning)
 
 
 @redhand_guard(shield)

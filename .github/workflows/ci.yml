@@ -142,6 +142,9 @@ jobs:
           print('Clean wheel install-and-import smoke test: SUCCESS')
           "
 
+      - name: Run the documented quickstart against the installed wheel
+        run: python scripts/run_quickstart.py --python /tmp/smoke-env/bin/python
+
       - name: Run host-integration smoke test (manifest, schemas, fingerprint, API)
         run: |
           /tmp/smoke-env/bin/redhand-shield manifest > /dev/null

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Releasing · redhand-certin-0058-preset</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top"><span class="brand">redhand-certin-0058-preset</span><nav><a href="index.html">Home</a><a href="quickstart.html">Quickstart</a><a href="architecture.html">Architecture</a><a href="demo.html">Demo</a><a href="comparison.html">Comparison</a><a href="threat-model.html">Threat model</a><a href="rules.html">Rule catalog</a><a href="integration.html">Integration</a><a href="detection-results.html">Detection results</a><a href="announcement.html">Announcement</a><a href="releasing.html" aria-current="page">Releasing</a></nav></header>
+<main>
+<h1 id="releasing">Releasing</h1>
+<p>A release is cut by pushing a version tag. **Pushing a <code>v*.*.*</code> tag triggers <code>.github/workflows/release.yml</code>, which builds the distributions, generates an SBOM and Sigstore build-provenance attestations, and publishes to PyPI.** Publishing cannot be undone (a PyPI version can be yanked but never reused), so a person decides when to tag; nothing in this repository tags automatically.</p>
+<h2 id="before-tagging">Before tagging</h2>
+<ol><li><strong>Branch is green.</strong> CI passes on the commit you will tag: lint, format, <code>mypy --strict</code>, the test matrix with the 97% coverage floor, and the wheel smoke test (which also runs the documented quickstart against the built wheel).</li><li><strong>Version is consistent.</strong> <code>pyproject.toml</code>, <code>redhand_fintech_shield.__version__</code>, the gateway's default <code>server_version</code> and <code>uv.lock</code> all carry the new version, and <code>SECURITY.md</code> lists it as supported. <code>pytest</code> fails if the package and the recorded measurements disagree.</li><li><strong>Generated files are current.</strong> Run each command and commit the result:</li></ol>
+<pre class="lang-bash"><code>redhand-shield replay --markdown docs/detection-results.md
+redhand-shield api --out docs/public_api.json
+python scripts/release_numbers.py --measure   # slow: runs the benchmark and the full suite
+python scripts/release_numbers.py --render
+python scripts/build_docs.py</code></pre>
+<ol><li><strong>Changelog.</strong> <code>CHANGELOG.md</code> has a dated entry for the version, with Added, Changed, Fixed and any Removed or Deprecated items.</li><li><strong>Numbers are honest.</strong> Read <code>docs/announcement.md</code>. Every figure comes from a command; the machine-dependent ones say so. Re-run <code>--measure</code> on a quiet machine if a latency figure looks off, and never edit the announcement by hand.</li><li><strong>Clean install check.</strong> Build and try the wheel the way a user would:</li></ol>
+<pre class="lang-bash"><code>uv build
+python -m venv /tmp/rel-check
+/tmp/rel-check/bin/pip install dist/*.whl
+python scripts/run_quickstart.py --python /tmp/rel-check/bin/python
+/tmp/rel-check/bin/redhand-shield --version
+/tmp/rel-check/bin/redhand-shield doctor
+/tmp/rel-check/bin/redhand-shield schema --check</code></pre>
+<h2 id="tagging">Tagging</h2>
+<pre class="lang-bash"><code>git switch main &amp;&amp; git pull --ff-only
+git tag -s v0.2.0 -m &quot;v0.2.0&quot;      # or -a if you do not sign tags
+git push origin v0.2.0</code></pre>
+<h2 id="after-tagging">After tagging</h2>
+<ol><li>Watch the <strong>Release</strong> workflow. It must finish all of: build, SBOM, attestations, upload, and PyPI publish.</li><li>Check PyPI shows the new version and that <code>pip install redhand-certin-0058-preset==0.2.0</code> works in a fresh environment.</li><li>Verify the provenance attestation for the downloaded wheel:</li></ol>
+<pre class="lang-bash"><code>gh attestation verify redhand_certin_0058_preset-0.2.0-py3-none-any.whl \
+  --repo iqbalassyraf/redhand-certin-0058-preset</code></pre>
+<ol><li>Create the GitHub release from the tag, using the changelog entry and linking the announcement.</li><li>Start a new <code>## [Unreleased]</code> section in the changelog if one is not there.</li></ol>
+<h2 id="if-something-goes-wrong">If something goes wrong</h2>
+<ul><li>A failed workflow before the PyPI step: fix forward on <code>main</code>, delete the remote tag (<code>git push origin :refs/tags/v0.2.0</code>) and the local one, and tag again.</li><li>A bad release already on PyPI: yank it on PyPI, publish a fixed patch version, and say why in the changelog. Do not reuse the version number.</li></ul>
+</main>
+<footer>Generated from the repository's Markdown by <code>scripts/build_docs.py</code>. Source: <a href="https://github.com/iqbalassyraf/redhand-certin-0058-preset">https://github.com/iqbalassyraf/redhand-certin-0058-preset</a></footer>
+</body>
+</html>

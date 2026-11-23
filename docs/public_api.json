@@ -355,7 +355,7 @@
     "kind": "model"
   },
   "MCPGateway": {
-    "init": "(shield:Shield, executor:ToolExecutor | dict[str, Callable[..., Any]] | None=None, tools:Sequence[ToolDefinition] | None=None, default_env:Env=<Env.PROD: 'prod'>|kw, server_name:str='redhand-fintech-shield-gateway'|kw, server_version:str='0.1.0'|kw, error_mode:Literal['mcp', 'jsonrpc']='mcp'|kw)",
+    "init": "(shield:Shield, executor:ToolExecutor | dict[str, Callable[..., Any]] | None=None, tools:Sequence[ToolDefinition] | None=None, default_env:Env=<Env.PROD: 'prod'>|kw, server_name:str='redhand-fintech-shield-gateway'|kw, server_version:str='0.2.0'|kw, error_mode:Literal['mcp', 'jsonrpc']='mcp'|kw)",
     "kind": "class",
     "methods": {
       "dispatch_request": "(self:, method:str, params:dict[str, Any], req_id:Any)",

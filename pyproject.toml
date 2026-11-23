@@ -1,6 +1,6 @@
 [project]
 name = "redhand-certin-0058-preset"
-version = "0.1.0"
+version = "0.2.0"
 description = "Deterministic runtime interceptor preset for RedHand and standalone toolkit defending against CERT-In CIAD-2026-0058 (CRAFTY FALCON) and CIAD-2026-0049."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -23,6 +23,13 @@ dependencies = [
 
 [project.optional-dependencies]
 demo = ["rich>=13.9.0"]
+
+[project.urls]
+Homepage = "https://github.com/iqbalassyraf/redhand-certin-0058-preset"
+Documentation = "https://github.com/iqbalassyraf/redhand-certin-0058-preset/tree/main/docs"
+Repository = "https://github.com/iqbalassyraf/redhand-certin-0058-preset"
+Issues = "https://github.com/iqbalassyraf/redhand-certin-0058-preset/issues"
+Changelog = "https://github.com/iqbalassyraf/redhand-certin-0058-preset/blob/main/CHANGELOG.md"
 
 [project.scripts]
 redhand-certin-0058 = "redhand_fintech_shield.__main__:main"

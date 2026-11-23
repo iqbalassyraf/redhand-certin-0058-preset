@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header class="top"><span class="brand">redhand-certin-0058-preset</span><nav><a href="index.html">Home</a><a href="quickstart.html" aria-current="page">Quickstart</a><a href="architecture.html">Architecture</a><a href="demo.html">Demo</a><a href="comparison.html">Comparison</a><a href="threat-model.html">Threat model</a><a href="rules.html">Rule catalog</a><a href="integration.html">Integration</a><a href="detection-results.html">Detection results</a><a href="announcement.html">Announcement</a></nav></header>
+<header class="top"><span class="brand">redhand-certin-0058-preset</span><nav><a href="index.html">Home</a><a href="quickstart.html" aria-current="page">Quickstart</a><a href="architecture.html">Architecture</a><a href="demo.html">Demo</a><a href="comparison.html">Comparison</a><a href="threat-model.html">Threat model</a><a href="rules.html">Rule catalog</a><a href="integration.html">Integration</a><a href="detection-results.html">Detection results</a><a href="announcement.html">Announcement</a><a href="releasing.html">Releasing</a></nav></header>
 <main>
 <h1 id="quickstart-from-pip-install-to-a-protected-agent">Quickstart: from <code>pip install</code> to a protected agent</h1>
 <p>About two minutes. Every code block marked <code>python</code> or <code>bash run</code> below is executed by the test suite (<code>tests/test_quickstart.py</code>), so this page cannot drift from the package.</p>
@@ -16,7 +16,8 @@
 <p>Python 3.11 or newer. The decision path makes no network calls.</p>
 <h2 id="2-protect-a-tool">2. Protect a tool</h2>
 <p>A <em>run token</em> is an Ed25519-signed grant naming the environment, the single agent run and the tools that run may call. The shield checks it on every call, before your tool executes.</p>
-<pre class="lang-python"><code>from decimal import Decimal
+<pre class="lang-python"><code>from datetime import UTC, datetime
+from decimal import Decimal
 
 from redhand_fintech_shield import (
     AgentTokenIssuer,
@@ -32,7 +33,11 @@ from redhand_fintech_shield import (
 
 private, public = AgentTokenIssuer.generate_keypair()
 audit = HashChainedAuditLog(&quot;audit.jsonl&quot;)
-shield = Shield(load_policy(), AgentTokenVerifier(public), audit=audit)
+# The preset tightens limits outside business hours, on weekends and on holidays (rule R4).
+# Pinning the clock to a weekday morning (IST) makes this walkthrough behave the same at any
+# hour; in production, leave `clock=` out and the shield uses the real time.
+weekday_morning = lambda: datetime(2026, 11, 25, 5, 0, tzinfo=UTC)  # noqa: E731
+shield = Shield(load_policy(), AgentTokenVerifier(public), audit=audit, clock=weekday_morning)
 
 
 @redhand_guard(shield)

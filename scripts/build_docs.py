@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 import re
 import sys
 from collections.abc import Callable
@@ -58,6 +59,7 @@ PAGES: tuple[Page, ...] = (
     ),
     Page("detection-results", "Detection results", "docs/detection-results.md"),
     Page("announcement", "Announcement", "docs/announcement.md"),
+    Page("releasing", "Releasing", "RELEASING.md"),
 )
 
 # ---------------------------------------------------------------------------------------------
@@ -320,7 +322,19 @@ def _make_resolver(
     base = (ROOT / page.source).parent
 
     def resolve(href: str) -> str:
-        if re.match(r"[a-z][a-z0-9+.-]*:", href):
+        repo_prefix = next(
+            (
+                f"{REPO_URL}/{kind}/main/"
+                for kind in ("blob", "tree")
+                if href.startswith(f"{REPO_URL}/{kind}/main/")
+            ),
+            None,
+        )
+        if repo_prefix is not None:
+            # An absolute link to this repository (README links are absolute for PyPI):
+            # resolve it like a relative one so page links stay inside the site.
+            href = os.path.relpath(ROOT / href[len(repo_prefix) :], base).replace(os.sep, "/")
+        elif re.match(r"[a-z][a-z0-9+.-]*:", href):
             return href
         path, _, frag = href.partition("#")
         suffix = f"#{frag}" if frag else ""

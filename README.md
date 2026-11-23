@@ -38,6 +38,8 @@ uv run python examples/simulate_crafty_falcon.py --delay 0  # same, instant
 uv run pytest && uv run ruff check . && uv run mypy
 ```
 
+New here? The [quickstart](https://github.com/iqbalassyraf/redhand-certin-0058-preset/blob/main/docs/quickstart.md) goes from `pip install` to a protected agent, and every code block in it is run by the test suite.
+
 The simulation replays all four kill-chain stages through the real shield with stub tools
 (synthetic calls only; nothing leaves the process). Enforce mode stops 8 of 9 malicious steps
 and holds attacker funds to **$0.50**; observe-only lets $54,503.50 through but records every
@@ -180,7 +182,7 @@ removed protected tool, a new currency, a rule switched to shadow or off) is ref
 exact field is listed under `loosen:`, and a field the base lists under `locked:` can never be
 loosened. A `loosen:` entry that loosens nothing is also an error. The loaded policy records its
 provenance (chain with SHA-256, accepted loosenings, locks), and `redhand-shield show-policy
-overlay.yaml` prints it. See [examples/acme_overlay.yaml](examples/acme_overlay.yaml).
+overlay.yaml` prints it. See [examples/acme_overlay.yaml](https://github.com/iqbalassyraf/redhand-certin-0058-preset/blob/main/examples/acme_overlay.yaml).
 
 * **Shadow rules.** `rules: {<rule id>: {mode: observe_only}}` keeps a detector running and reports
   what it would have done (`enforced: false`), but it never blocks, quarantines or asks for an
@@ -251,12 +253,12 @@ turn `allow_legacy_step_up` off, and every use is reported as a deprecation find
 
 Claims about the preset are checkable, and the checks run in CI.
 
-* **Replay corpus.** [corpus/](corpus) holds 108 synthetic traces: attacks in the shape of the
+* **Replay corpus.** [corpus/](https://github.com/iqbalassyraf/redhand-certin-0058-preset/tree/main/corpus) holds 108 synthetic traces: attacks in the shape of the
   CRAFTY FALCON chain (credential pivot, probing, enumeration, split payments, new payees, off-hours,
   slow drain, token and approval abuse, hostile input) and ordinary traffic.
   `redhand-shield replay` runs them through the real shield and prints, per rule, the detection rate
   on the attacks that should trip it and the false-positive rate on benign traffic
-  ([docs/detection-results.md](docs/detection-results.md)). On corpus 1.0.0: 73 of 73 catchable
+  ([docs/detection-results.md](https://github.com/iqbalassyraf/redhand-certin-0058-preset/blob/main/docs/detection-results.md)). On corpus 1.0.0: 73 of 73 catchable
   attacks stopped, 0 of 26 benign scenarios wrongly flagged. **The corpus is synthetic and written by
   the people who wrote the rules**, so this is a regression check, not a measure of production
   performance. The limits are in the corpus too: five attacks the preset is documented *not* to catch
@@ -286,9 +288,9 @@ Everything a host application needs to consume the preset is machine-readable an
 * **Discover it.** `redhand-shield manifest` (or the `redhand.presets` entry point,
   `redhand_fintech_shield.manifest:get_manifest`) returns the preset id and version, the advisories
   it maps to, its policy fingerprint, and a catalog of every rule: stage, default severity,
-  rationale, and whether it can be tuned or waived. [docs/rules.md](docs/rules.md) is generated
+  rationale, and whether it can be tuned or waived. [docs/rules.md](https://github.com/iqbalassyraf/redhand-certin-0058-preset/blob/main/docs/rules.md) is generated
   from it and kept in sync by a test.
-* **Validate against schemas.** [schemas/](schemas) holds JSON Schemas for the policy, findings,
+* **Validate against schemas.** [schemas/](https://github.com/iqbalassyraf/redhand-certin-0058-preset/tree/main/schemas) holds JSON Schemas for the policy, findings,
   audit records, approval requests and claims, token claims, tool-call context and the manifest,
   each with a URN `$id` and a version. A change to any model is a visible diff, and
   `redhand-shield schema --check` fails when they are stale. The finding (M4.2) and mode (M4.3)
@@ -324,9 +326,9 @@ Everything a host application needs to consume the preset is machine-readable an
   inside one process, so across workers a cumulative cap can overshoot by up to the number of
   concurrent workers, and workers sharing a store need a shared time base (pass a wall-clock
   `monotonic=` to the shield).
-* **Depend on a stable API.** [docs/public_api.json](docs/public_api.json) snapshots every name in
+* **Depend on a stable API.** [docs/public_api.json](https://github.com/iqbalassyraf/redhand-certin-0058-preset/blob/main/docs/public_api.json) snapshots every name in
   `redhand_fintech_shield.__all__` with its signature; a test fails on any difference. Breaking
-  changes and deprecations follow the policy in [CONTRIBUTING.md](CONTRIBUTING.md).
+  changes and deprecations follow the policy in [CONTRIBUTING.md](https://github.com/iqbalassyraf/redhand-certin-0058-preset/blob/main/CONTRIBUTING.md).
 
 ## MCP Gateway & Docker Quickstart
 
@@ -563,8 +565,8 @@ tests/                               unit, negative, concurrency, contract and f
 
 ## Roadmap
 
-See [UPGRADE.md](UPGRADE.md) for the phased roadmap and the checks that define "done" for each phase.
+See [UPGRADE.md](https://github.com/iqbalassyraf/redhand-certin-0058-preset/blob/main/UPGRADE.md) for the phased roadmap and the checks that define "done" for each phase.
 
 ## Licence
 
-Apache License 2.0. See [LICENSE](LICENSE). Copyright ARCHTIFICIAL Sdn. Bhd.
+Apache License 2.0. See [LICENSE](https://github.com/iqbalassyraf/redhand-certin-0058-preset/blob/main/LICENSE). Copyright ARCHTIFICIAL Sdn. Bhd.

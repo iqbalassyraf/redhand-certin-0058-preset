@@ -69,7 +69,7 @@ from .revocations import RevocationRegistry
 from .rules import RULE_CATALOG, RuleInfo
 from .windowstore import InMemoryWindowStore
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 _PRESET_NAME = "certin_ciad_2026_0058.yaml"
 

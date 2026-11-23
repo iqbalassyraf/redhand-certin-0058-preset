@@ -19,7 +19,7 @@ benchmark harness so anyone can reproduce them.
   are expected to live in separate packages built on tagged releases of this one.
 - **No platform code in the core.** The core exposes interfaces. Platform adapters live elsewhere.
 
-## Where we are (Phases 1 to 4 complete)
+## Where we are (Phases 1 to 5 complete)
 
 In-process decorator, Ed25519 per-run tokens, sliding-window detectors, HITL gate, off-hours
 tightening, journaled quarantine, hash-chained audit log with rotation and an offline verifier,
@@ -27,14 +27,17 @@ extensibility protocols (`protocols.py`), out-of-process MCP Gateway (`MCPGatewa
 multi-cloud and framework adapters (`BedrockConverseAdapter`, `AzureOpenAIAdapter`,
 `RedHandSemanticKernelFilter`, `GoogleGenAIAdapter`, `RedHandGuardedTool`, `GenericToolRunner`),
 production multi-stage `Dockerfile`, automated latency benchmark suite (`benchmarks/bench_latency.py`),
-a CLI, a terminal attack simulation, and 828 tests at 99% coverage. Phase 3 M1 added three
+a CLI, a terminal attack simulation, and a test suite at 99% coverage (the current count is in
+`docs/release_measurements.json`). Phase 3 M1 added three
 deterministic detectors: split-transaction structuring, new-beneficiary high value, and the
 recon-to-payment sequence rule; M2 added per-tool argument bindings so those rules see the field
 each tool really pays from; M3 added signed, single-use, per-transaction approvals; M4 closed the detector
 bypasses (scopes across runs, caps, tool rotation, payee spelling, currency splitting); M5 added
 overlays, shadow rules and exemptions; Phase 3.5 added the integration contract (manifest,
 schemas, policy fingerprint, token rotation and revocation, window-store seam, stable API); Phase 4
-added the replay corpus and harness, fuzzing, `doctor` and the evidence report. With every
+added the replay corpus and harness, fuzzing, `doctor` and the evidence report; Phase 5 added the
+executable quickstart, documentation site, recorded demo, comparison, reproducible release numbers
+and the `0.2.0` release preparation. With every
 rule exercised on a protected tool (`decision_core_protected`) the in-process p99 measured about
 0.35 ms (p50 0.18 ms), and with a layered policy (shadow rule, severity override and an active
 exemption, `decision_core_layered`) about 0.6 ms, in the benchmark harness (sandbox run). Measured via `benchmarks/bench_latency.py` before M1:
@@ -252,7 +255,7 @@ the corpus, replay numbers and report also verified from an installed wheel). "N
 fuzzing is evidence for the inputs tried, not a proof: run it longer with
 `REDHAND_FUZZ_ITERATIONS`.
 
-## Phase 5: Launch
+## Phase 5: Launch (complete)
 
 - Documentation site with an architecture diagram and the threat model.
 - A recorded terminal demo.
@@ -261,6 +264,15 @@ fuzzing is evidence for the inputs tried, not a proof: run it longer with
 
 **Done when:** a new user can go from `pip install` to a protected agent in two minutes using the
 docs alone, and every number in the announcement can be reproduced from the repository.
+
+**Status:** done, except that the release itself is a human step. What exists: `docs/quickstart.md`
+(every block is run by the tests and, in CI, against the built wheel); the documentation site in
+`docs/site/` (`scripts/build_docs.py`, with link and drift checks); the recorded demo
+(`scripts/record_demo.py`); `docs/comparison.md`; `scripts/release_numbers.py` with a generated
+`docs/announcement.md` (exact numbers are recomputed and checked, machine-dependent ones are
+recorded with their commands); and a `0.2.0` version, changelog entry and `RELEASING.md`.
+The `v0.2.0` tag is not pushed: tagging triggers the PyPI publish, so a person does it after
+following `RELEASING.md`.
 
 ## Non-goals
 
@@ -271,5 +283,5 @@ infrastructure across hosts.
 ## Versioning
 
 Semantic versioning, staying on 0.x until the gateway and per-transaction approval stabilise.
-The first public release is `v0.1.0`, cut at the end of Phase 1. Every release has a changelog
-entry.
+The first public release is `v0.2.0`, cut at the end of Phase 5; `0.1.0` was an internal
+milestone and was never tagged. Every release has a changelog entry.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import re
 import sys
 from pathlib import Path
@@ -69,6 +70,10 @@ def test_build_is_deterministic() -> None:
     assert build_docs.build() == build_docs.build()
 
 
+@pytest.mark.skipif(
+    bool(os.environ.get("REDHAND_RELEASE_MEASURING")),
+    reason="--measure is recording the numbers the announcement page renders",
+)
 def test_committed_site_matches_fresh_build() -> None:
     assert build_docs.main(["--check"]) == 0, "run: python scripts/build_docs.py"
 

@@ -82,3 +82,12 @@ def test_quickstart_tamper_claim_is_true(tmp_path: Path) -> None:
     )
     assert done.returncode != 0
     assert "BROKEN" in done.stdout + done.stderr
+
+
+def test_ci_runner_agrees_with_the_tests() -> None:
+    runner = Path(__file__).resolve().parents[1] / "scripts" / "run_quickstart.py"
+    done = subprocess.run(
+        [sys.executable, str(runner)], capture_output=True, text=True, timeout=120
+    )
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "quickstart OK" in done.stdout
