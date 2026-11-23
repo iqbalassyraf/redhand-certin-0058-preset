@@ -506,13 +506,19 @@ class NewBeneficiaryDetector:
         currency: str | None,
         claims: TokenClaims | None,
         effective: EffectivePolicy,
+        beneficiaries: tuple[str, ...] = (),
     ) -> Violation | None:
-        if not self._p.enabled or beneficiary is None:
+        payees = tuple(dict.fromkeys(((beneficiary,) if beneficiary else ()) + beneficiaries))
+        if not self._p.enabled or not payees:
             return None
         if self._protected_tools is not None and tool_name not in self._protected_tools:
             return None
-        if beneficiary in self._p.known_beneficiaries:
+        # A bulk call is judged by every payee: one unknown payee among known ones is enough.
+        unknown = [b for b in payees if b not in self._p.known_beneficiaries]
+        if not unknown:
             return None
+        beneficiary = unknown[0]
+        more = f" (+{len(unknown) - 1} more new)" if len(unknown) > 1 else ""
         if self._p.action == "hitl_required" and claims is not None and claims.hitl_step_up:
             return None
 
@@ -525,12 +531,12 @@ class NewBeneficiaryDetector:
         reason: str | None = None
         if amount is None:
             reason = (
-                f"new beneficiary {beneficiary!r} on protected endpoint without an amount "
+                f"new beneficiary {beneficiary!r}{more} on protected endpoint without an amount "
                 "(fail-closed)"
             )
         elif threshold is None:
             reason = (
-                f"new beneficiary {beneficiary!r} with currency {currency or 'MISSING'!r} "
+                f"new beneficiary {beneficiary!r}{more} with currency {currency or 'MISSING'!r} "
                 "has no configured threshold (fail-closed)"
             )
         elif amount > threshold:
@@ -540,7 +546,7 @@ class NewBeneficiaryDetector:
                 else ""
             )
             reason = (
-                f"new beneficiary {beneficiary!r} with amount {amount} {currency} "
+                f"new beneficiary {beneficiary!r}{more} with amount {amount} {currency} "
                 f"exceeds {threshold}{tightened}"
             )
         if reason is None:

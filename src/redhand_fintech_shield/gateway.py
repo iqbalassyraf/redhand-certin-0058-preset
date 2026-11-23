@@ -11,16 +11,15 @@ import asyncio
 import contextlib
 import inspect
 import json
-import os
 import re
 import sys
 from collections.abc import Callable, Sequence
-from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
-import jwt
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from .context import extract_tool_call_context as extract_tool_call_context
+from .context import sanitize_arguments as sanitize_arguments
 from .exceptions import ShieldError
 from .interceptor import Shield
 from .models import Decision, Env, Mode, ToolCallContext
@@ -56,113 +55,6 @@ class ToolDefinition(BaseModel):
     description: str = ""
     inputSchema: dict[str, Any] = Field(
         default_factory=lambda: {"type": "object", "properties": {}}
-    )
-
-
-def sanitize_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Strip internal security tokens and envelope metadata from arguments."""
-    return {
-        k: v
-        for k, v in arguments.items()
-        if k not in ("_meta", "token", "_token", "target_env", "agent_run_id")
-    }
-
-
-def extract_tool_call_context(
-    tool_name: str,
-    arguments: dict[str, Any],
-    meta: dict[str, Any] | None = None,
-    default_env: Env = Env.PROD,
-) -> ToolCallContext:
-    """Extract ToolCallContext from MCP tools/call parameters.
-
-    Extracts token, agent_run_id, target_env, amount, and currency with
-    strict zero-trust fallbacks.
-    """
-    meta_dict: dict[str, Any] = meta if isinstance(meta, dict) else {}
-    raw_arg_meta = arguments.get("_meta")
-    arg_meta: dict[str, Any] = raw_arg_meta if isinstance(raw_arg_meta, dict) else {}
-
-    # 1. Token extraction
-    token_candidate = (
-        meta_dict.get("token")
-        or arg_meta.get("token")
-        or arguments.get("token")
-        or arguments.get("_token")
-        or os.environ.get("REDHAND_AGENT_TOKEN", "")
-    )
-    token = str(token_candidate).strip() if token_candidate is not None else ""
-
-    # 2. Agent run ID extraction
-    run_id_candidate = (
-        meta_dict.get("agent_run_id")
-        or arg_meta.get("agent_run_id")
-        or arguments.get("agent_run_id")
-    )
-    run_id = str(run_id_candidate).strip() if run_id_candidate is not None else ""
-
-    # If run_id is missing, inspect unverified token payload claims as fallback
-    if not run_id and token:
-        try:
-            unverified = jwt.decode(token, options={"verify_signature": False})
-            if isinstance(unverified, dict):
-                run_id = str(unverified.get("agent_run_id", "")).strip()
-        except Exception:  # noqa: S110
-            pass
-
-    if not run_id:
-        run_id = "anonymous"
-
-    # 3. Target environment extraction
-    env_candidate = (
-        meta_dict.get("target_env")
-        or arg_meta.get("target_env")
-        or arguments.get("target_env")
-        or default_env.value
-    )
-    target_env = Env(env_candidate)
-
-    # 4. Monetary attributes extraction
-    raw_amount = arguments.get("amount")
-    amount: Decimal | float | None
-    if raw_amount is None:
-        amount = None
-    elif isinstance(raw_amount, float):
-        # Forward float directly so ToolCallContext validator raises strict ValueError
-        amount = raw_amount
-    else:
-        try:
-            amount = Decimal(str(raw_amount))
-        except (InvalidOperation, ValueError) as exc:
-            raise ValueError(f"invalid decimal amount: {raw_amount}") from exc
-
-    raw_currency = arguments.get("currency")
-    currency = str(raw_currency).upper() if raw_currency is not None else None
-
-    raw_beneficiary = (
-        arguments.get("beneficiary") or meta_dict.get("beneficiary") or arg_meta.get("beneficiary")
-    )
-    beneficiary: str | None = None
-    if raw_beneficiary is not None:
-        stripped = str(raw_beneficiary).strip()
-        beneficiary = stripped if stripped else None
-
-    # 5. Metadata extraction
-    metadata: dict[str, str] = {}
-    for source in (meta_dict, arg_meta):
-        for k, v in source.items():
-            if k not in ("token", "agent_run_id", "target_env") and isinstance(v, (str, int, bool)):
-                metadata[str(k)] = str(v)
-
-    return ToolCallContext(
-        agent_run_id=run_id,
-        tool_name=tool_name,
-        target_env=target_env,
-        token=token,
-        amount=amount,  # type: ignore[arg-type]
-        currency=currency,
-        beneficiary=beneficiary,
-        metadata=metadata,
     )
 
 
@@ -303,6 +195,7 @@ class MCPGateway:
                 arguments=arguments,
                 meta=raw_meta,
                 default_env=self.default_env,
+                bindings=self.shield.policy.tool_bindings,
             )
         except (ValueError, ValidationError) as exc:
             return self._format_error(

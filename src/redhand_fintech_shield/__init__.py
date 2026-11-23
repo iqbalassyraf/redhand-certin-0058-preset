@@ -6,6 +6,7 @@ from pathlib import Path
 
 from . import adapters
 from .audit import AuditLog, ChainVerificationReport, HashChainedAuditLog
+from .context import extract_tool_call_context
 from .crypto import AgentTokenIssuer, AgentTokenVerifier
 from .detectors import QuarantineRegistry, QuarantineTracker
 from .exceptions import (
@@ -34,6 +35,8 @@ from .models import (
     Mode,
     PolicyConfig,
     TokenClaims,
+    ToolBinding,
+    ToolBindingsPolicy,
     ToolCallContext,
 )
 from .protocols import (
@@ -106,6 +109,8 @@ __all__ = [
     "TokenClaims",
     "TokenInvalidError",
     "TokenPivotError",
+    "ToolBinding",
+    "ToolBindingsPolicy",
     "ToolCallContext",
     "ToolDefinition",
     "ToolExecutor",
@@ -114,6 +119,7 @@ __all__ = [
     "__version__",
     "adapters",
     "default_preset_path",
+    "extract_tool_call_context",
     "load_policy",
     "redhand_guard",
 ]

@@ -111,6 +111,6 @@ We explicitly articulate what this library **cannot** defend against. Never trea
 7. **RedHand Telemetry Schema Status:**
    - *Notice:* The M4.2 finding schema and M4.3 mode semantics were implemented from design specifications. They are not certified by RedHand and should not be represented as an official RedHand release.
 
-8. **Argument Binding Is Convention-Based:**
-   - *Limitation:* The gateway and adapters read only the `amount`, `currency` and `beneficiary` arguments. A tool that names these fields differently, or carries several payees in a list, is not judged by the money rules (protected tools still fail closed when no amount is found).
-   - *Mitigation:* Name the arguments as above until the roadmap's per-tool argument bindings (Phase 3 M2) ship, and keep sensitive tools on the protected list.
+8. **Argument Bindings Are Operator-Declared:**
+   - *Limitation:* The rules judge the fields named in `tool_bindings` (or, for unbound tools while `legacy_fallback` is on, the conventional `amount`, `currency` and `beneficiary`). A tool that moves money through an argument the operator did not bind is not judged by the money rules; protected tools must be bound (`require_for_protected`) and fail closed when the bound field is missing or incomplete.
+   - *Mitigation:* Bind every tool that can move money, set `legacy_fallback: false` once all of them are bound, and review bindings when a tool's schema changes. Bulk calls are summed and every payee is checked, and a negative element is refused.

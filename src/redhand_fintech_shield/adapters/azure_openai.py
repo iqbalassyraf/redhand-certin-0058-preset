@@ -105,7 +105,12 @@ class AzureOpenAIAdapter:
         if parse_err is not None:
             return self._build_tool_message(tool_call_id, tool_name, {"error": parse_err})
 
-        ctx = extract_tool_call_context(tool_name, args_dict, default_env=self.default_env)
+        ctx = extract_tool_call_context(
+            tool_name,
+            args_dict,
+            default_env=self.default_env,
+            bindings=self.shield.policy.tool_bindings,
+        )
         evaluation = self.shield.evaluate(ctx)
 
         is_blocked = (
@@ -134,7 +139,12 @@ class AzureOpenAIAdapter:
         if parse_err is not None:
             return self._build_tool_message(tool_call_id, tool_name, {"error": parse_err})
 
-        ctx = extract_tool_call_context(tool_name, args_dict, default_env=self.default_env)
+        ctx = extract_tool_call_context(
+            tool_name,
+            args_dict,
+            default_env=self.default_env,
+            bindings=self.shield.policy.tool_bindings,
+        )
         evaluation = self.shield.evaluate(ctx)
 
         is_blocked = (
@@ -207,7 +217,12 @@ class RedHandSemanticKernelFilter:
     ) -> None:
         """Filter invocation hook compatible with Semantic Kernel function invocation pipeline."""
         tool_name, args_dict = self._extract_name_and_args(context)
-        ctx = extract_tool_call_context(tool_name, args_dict, default_env=self.default_env)
+        ctx = extract_tool_call_context(
+            tool_name,
+            args_dict,
+            default_env=self.default_env,
+            bindings=self.shield.policy.tool_bindings,
+        )
 
         evaluation = self.shield.evaluate(ctx)
         is_blocked = (

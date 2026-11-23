@@ -26,6 +26,19 @@ _STRICT = ConfigDict(frozen=True, extra="forbid")
 
 CurrencyCode = Annotated[str, StringConstraints(pattern=r"^[A-Za-z]{3}$", to_upper=True)]
 NonEmptyStr = Annotated[str, StringConstraints(min_length=1)]
+# Dotted argument path with optional list selectors: ``payee.vpa``, ``payments[*].amount``,
+# ``items[0].value``. Deliberately not full JSONPath: no filters, no recursion, nothing that can
+# be made expensive by attacker-controlled arguments.
+ArgPath = Annotated[
+    str,
+    StringConstraints(
+        max_length=256,
+        pattern=(
+            r"^[A-Za-z_][A-Za-z0-9_-]*(\[(\*|\d+)\])?"
+            r"(\.[A-Za-z_][A-Za-z0-9_-]*(\[(\*|\d+)\])?)*$"
+        ),
+    ),
+]
 
 
 class Decision(StrEnum):
@@ -228,6 +241,57 @@ class SequencePolicy(BaseModel):
     window_seconds: float = Field(default=30.0, gt=0)
 
 
+class ToolBinding(BaseModel):
+    """Where one tool keeps its amount, currency and beneficiary(ies) in its arguments.
+
+    A path that selects a list (``payments[*].amount``) makes the call a bulk call: amounts are
+    summed, beneficiaries are all judged, and currencies must agree or the currency is treated as
+    unknown (fail-closed). If a bound path is absent, incomplete or ambiguous the field is
+    unresolved, which the detectors already treat as fail-closed on protected tools.
+    """
+
+    model_config = _STRICT
+
+    amount: ArgPath | None = None
+    currency: ArgPath | None = None
+    fixed_currency: CurrencyCode | None = Field(
+        default=None,
+        description="For tools that take no currency argument (for example a domestic-only tool).",
+    )
+    beneficiary: ArgPath | None = None
+    max_items: int = Field(
+        default=1000, ge=1, le=100_000, description="Largest list a bound path may expand."
+    )
+
+    @model_validator(mode="after")
+    def _one_currency_source(self) -> ToolBinding:
+        if self.currency is not None and self.fixed_currency is not None:
+            raise ValueError("set either currency or fixed_currency, not both")
+        return self
+
+
+class ToolBindingsPolicy(BaseModel):
+    """Per-tool argument bindings, so money rules see the field a tool really uses."""
+
+    model_config = _STRICT
+
+    tools: dict[NonEmptyStr, ToolBinding] = Field(default_factory=dict)
+    legacy_fallback: bool = Field(
+        default=True,
+        description=(
+            "Tools without a binding fall back to the conventional argument names "
+            "(amount, currency, beneficiary). False means unbound tools resolve nothing."
+        ),
+    )
+    require_for_protected: bool = Field(
+        default=False,
+        description=(
+            "Refuse to load a policy in which a protected tool has no binding. A protected tool "
+            "is any tool named in hitl, structuring or sequence.payment_tools."
+        ),
+    )
+
+
 class PolicyConfig(BaseModel):
     """Declarative policy; loaded from ``presets/certin_ciad_2026_0058.yaml``."""
 
@@ -245,10 +309,31 @@ class PolicyConfig(BaseModel):
     structuring: StructuringPolicy = Field(default_factory=StructuringPolicy)
     new_beneficiary: NewBeneficiaryPolicy = Field(default_factory=NewBeneficiaryPolicy)
     sequence: SequencePolicy = Field(default_factory=SequencePolicy)
+    tool_bindings: ToolBindingsPolicy = Field(default_factory=ToolBindingsPolicy)
     quarantine_on_block: bool = True
     audit_path: Path = Path("audit_trail.jsonl")
     audit_fsync: bool = False
     quarantine_journal_path: Path | None = None
+
+    @property
+    def protected_tools(self) -> frozenset[str]:
+        """Every tool the money rules treat as protected."""
+        return (
+            self.hitl.protected_tools
+            | self.structuring.protected_tools
+            | (self.sequence.payment_tools)
+        )
+
+    @model_validator(mode="after")
+    def _bindings_cover_protected_tools(self) -> PolicyConfig:
+        if self.tool_bindings.require_for_protected:
+            missing = sorted(self.protected_tools - set(self.tool_bindings.tools))
+            if missing:
+                raise ValueError(
+                    f"tool_bindings.require_for_protected is set but these protected tools have "
+                    f"no binding: {', '.join(missing)}"
+                )
+        return self
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> PolicyConfig:
@@ -278,6 +363,10 @@ class ToolCallContext(BaseModel):
     amount: Decimal | None = None
     currency: CurrencyCode | None = None
     beneficiary: NonEmptyStr | None = None
+    beneficiaries: tuple[NonEmptyStr, ...] = Field(
+        default=(),
+        description="All distinct payees of a bulk call; ``beneficiary`` is the first of them.",
+    )
     timestamp: datetime | None = Field(
         default=None,
         description="Caller-claimed time; logged but NEVER trusted. The shield uses its own clock.",

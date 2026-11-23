@@ -77,7 +77,10 @@ class RedHandGuardedTool:
         """Synchronous tool execution hook intercepted by RedHand Shield."""
         all_args = self._extract_all_arguments(*args, **kwargs)
         ctx = extract_tool_call_context(
-            tool_name=self.name, arguments=all_args, default_env=self.default_env
+            tool_name=self.name,
+            arguments=all_args,
+            default_env=self.default_env,
+            bindings=self.shield.policy.tool_bindings,
         )
 
         evaluation = self.shield.evaluate(ctx)
@@ -111,7 +114,10 @@ class RedHandGuardedTool:
         """Asynchronous tool execution hook intercepted by RedHand Shield."""
         all_args = self._extract_all_arguments(*args, **kwargs)
         ctx = extract_tool_call_context(
-            tool_name=self.name, arguments=all_args, default_env=self.default_env
+            tool_name=self.name,
+            arguments=all_args,
+            default_env=self.default_env,
+            bindings=self.shield.policy.tool_bindings,
         )
 
         evaluation = self.shield.evaluate(ctx)

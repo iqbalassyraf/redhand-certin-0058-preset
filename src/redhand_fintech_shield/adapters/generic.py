@@ -57,7 +57,11 @@ class GenericToolRunner(ToolExecutor):
         else:
             meta = context if isinstance(context, dict) else None
             ctx = extract_tool_call_context(
-                tool_name, arguments, meta=meta, default_env=self.default_env
+                tool_name,
+                arguments,
+                meta=meta,
+                default_env=self.default_env,
+                bindings=self.shield.policy.tool_bindings,
             )
 
         evaluation = self.shield.evaluate(ctx)
@@ -97,7 +101,11 @@ class GenericToolRunner(ToolExecutor):
         else:
             meta = context if isinstance(context, dict) else None
             ctx = extract_tool_call_context(
-                tool_name, arguments, meta=meta, default_env=self.default_env
+                tool_name,
+                arguments,
+                meta=meta,
+                default_env=self.default_env,
+                bindings=self.shield.policy.tool_bindings,
             )
 
         evaluation = self.shield.evaluate(ctx)

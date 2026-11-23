@@ -279,7 +279,13 @@ class Shield:
             if gate is not None:
                 gate_violations.append(gate)
             new_ben = self._new_beneficiary.evaluate(
-                ctx.tool_name, ctx.beneficiary, ctx.amount, ctx.currency, claims, effective
+                ctx.tool_name,
+                ctx.beneficiary,
+                ctx.amount,
+                ctx.currency,
+                claims,
+                effective,
+                ctx.beneficiaries,
             )
             if new_ben is not None:
                 gate_violations.append(new_ben)

@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated `README.md` with MCP Gateway & Docker quickstart, multi-cloud adapter snippets, and empirical latency benchmark table; marked Phase 2 complete in `UPGRADE.md` (Phase 2 M4).
 - Phase 3 M1 detectors: split-transaction structuring (`CIAD-2026-0058.R2.structuring`), recon-to-payment sequence (`CIAD-2026-0058.R2.recon_to_payment_sequence`) and new-beneficiary high value (`CIAD-2026-0058.R3.new_beneficiary_high_value`), with `structuring`, `new_beneficiary` and `sequence` sections in the preset and new exceptions `StructuringError`, `NewBeneficiaryError` and `SequenceViolationError`.
 - Roadmap: Phase 3 milestones M2 to M5 (argument binding, per-transaction step-up, harder aggregation, composable policies) and a new Phase 3.5 integration contract in `UPGRADE.md`.
+- Phase 3 M2 argument bindings: `tool_bindings` policy section (`ToolBinding`, `ToolBindingsPolicy`) mapping each tool to the argument paths for amount, currency and beneficiary, with list aggregation (`payments[*].amount`), `fixed_currency`, `legacy_fallback` and `require_for_protected`. New `bindings.py` resolver and a single shared `context.extract_tool_call_context` used by the gateway and all adapters. `ToolCallContext.beneficiaries` lets the new-beneficiary rule judge every payee of a bulk call. The shipped preset binds its protected tools.
+
+### Changed
+- Bulk calls reject negative elements and unresolved bound fields are audited with a `binding_note` and treated as fail-closed on protected tools.
 
 ## [0.1.0] - 2026-11-12
 

@@ -78,7 +78,12 @@ class GoogleGenAIAdapter:
     def handle_function_call(self, function_call: dict[str, Any] | Any) -> dict[str, Any]:
         """Process a single Google GenAI FunctionCall synchronously."""
         tool_name, args_dict, call_id = self._parse_function_call(function_call)
-        ctx = extract_tool_call_context(tool_name, args_dict, default_env=self.default_env)
+        ctx = extract_tool_call_context(
+            tool_name,
+            args_dict,
+            default_env=self.default_env,
+            bindings=self.shield.policy.tool_bindings,
+        )
 
         evaluation = self.shield.evaluate(ctx)
         is_blocked = (
@@ -106,7 +111,12 @@ class GoogleGenAIAdapter:
     async def ahandle_function_call(self, function_call: dict[str, Any] | Any) -> dict[str, Any]:
         """Process a single Google GenAI FunctionCall asynchronously."""
         tool_name, args_dict, call_id = self._parse_function_call(function_call)
-        ctx = extract_tool_call_context(tool_name, args_dict, default_env=self.default_env)
+        ctx = extract_tool_call_context(
+            tool_name,
+            args_dict,
+            default_env=self.default_env,
+            bindings=self.shield.policy.tool_bindings,
+        )
 
         evaluation = self.shield.evaluate(ctx)
         is_blocked = (

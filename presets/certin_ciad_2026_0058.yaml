@@ -99,6 +99,28 @@ sequence:
   min_recon_calls: 3
   window_seconds: 30
 
+# --- Argument bindings: where each tool keeps its amount, currency and payee(s) ---
+# The money rules judge the bound fields only. A tool that names its fields differently, or pays a
+# list of payees, needs an entry here (paths: "payee.vpa", "payments[*].amount"; lists are summed and
+# every payee is checked). Tools without an entry use the conventional names while legacy_fallback
+# is true. require_for_protected refuses to load a policy that leaves a protected tool unbound.
+tool_bindings:
+  legacy_fallback: true
+  require_for_protected: true
+  tools:
+    settle_merchant:
+      amount: amount
+      currency: currency
+      beneficiary: beneficiary
+    initiate_disbursement:
+      amount: amount
+      currency: currency
+      beneficiary: beneficiary
+    bulk_payout:                  # single-payment shape; add a "payments[*]" entry for list shapes
+      amount: amount
+      currency: currency
+      beneficiary: beneficiary
+
 # --- Containment & evidence (CIAD-2026-0049: tamper-resistant logs, retain 180+ days) ---
 quarantine_on_block: true
 quarantine_journal_path: quarantine.jsonl   # replayed on startup so a crash does not free an agent

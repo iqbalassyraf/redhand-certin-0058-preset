@@ -115,7 +115,12 @@ class BedrockConverseAdapter:
     def handle_tool_use_block(self, tool_use: dict[str, Any]) -> dict[str, Any]:
         """Process a single Bedrock Converse toolUse block synchronously."""
         tool_use_id, tool_name, input_args = self._parse_tool_use_payload(tool_use)
-        ctx = extract_tool_call_context(tool_name, input_args, default_env=self.default_env)
+        ctx = extract_tool_call_context(
+            tool_name,
+            input_args,
+            default_env=self.default_env,
+            bindings=self.shield.policy.tool_bindings,
+        )
 
         evaluation = self.shield.evaluate(ctx)
         is_blocked = (
@@ -139,7 +144,12 @@ class BedrockConverseAdapter:
     async def ahandle_tool_use_block(self, tool_use: dict[str, Any]) -> dict[str, Any]:
         """Process a single Bedrock Converse toolUse block asynchronously."""
         tool_use_id, tool_name, input_args = self._parse_tool_use_payload(tool_use)
-        ctx = extract_tool_call_context(tool_name, input_args, default_env=self.default_env)
+        ctx = extract_tool_call_context(
+            tool_name,
+            input_args,
+            default_env=self.default_env,
+            bindings=self.shield.policy.tool_bindings,
+        )
 
         evaluation = self.shield.evaluate(ctx)
         is_blocked = (

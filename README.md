@@ -124,6 +124,36 @@ Monetary values are quoted strings (YAML floats are refused). Unknown or missing
 fail **closed**: they count as probe candidates and as above the HITL threshold.
 `python -m redhand_fintech_shield show-policy` prints the effective policy.
 
+### Tool bindings
+
+The money rules judge the amount, currency and beneficiary a tool is called with. If your tools
+name those fields differently, or pay a list of payees, say so in the policy:
+
+```yaml
+tool_bindings:
+  legacy_fallback: true          # unbound tools keep using amount / currency / beneficiary
+  require_for_protected: true    # refuse to load a policy with an unbound protected tool
+  tools:
+    pay_vendor:
+      amount: value
+      currency: ccy
+      beneficiary: payee.vpa
+    upi_send:
+      amount: amt
+      fixed_currency: INR        # the tool takes no currency argument
+      beneficiary: vpa
+    bulk_payout:
+      amount: payments[*].amount     # summed
+      currency: payments[*].currency # must agree, otherwise unknown (fail-closed)
+      beneficiary: payments[*].payee # every payee is checked
+      max_items: 500
+```
+
+A bound tool is judged by its bound fields only. A path that is missing, null or incomplete is
+unresolved, which fails closed on protected tools; negative amounts in a bulk call are refused.
+The gateway and all adapters read `shield.policy.tool_bindings`; hand-built `ToolCallContext`
+objects (the decorator path) are unaffected.
+
 ## MCP Gateway & Docker Quickstart
 
 Run the shield out-of-process as a stdio Model Context Protocol (MCP) gateway so the agent never

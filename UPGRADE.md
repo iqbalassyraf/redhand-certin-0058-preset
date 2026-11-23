@@ -27,14 +27,15 @@ extensibility protocols (`protocols.py`), out-of-process MCP Gateway (`MCPGatewa
 multi-cloud and framework adapters (`BedrockConverseAdapter`, `AzureOpenAIAdapter`,
 `RedHandSemanticKernelFilter`, `GoogleGenAIAdapter`, `RedHandGuardedTool`, `GenericToolRunner`),
 production multi-stage `Dockerfile`, automated latency benchmark suite (`benchmarks/bench_latency.py`),
-a CLI, a terminal attack simulation, and 271 tests at 99% coverage. Phase 3 M1 added three
+a CLI, a terminal attack simulation, and 325 tests at 99% coverage. Phase 3 M1 added three
 deterministic detectors: split-transaction structuring, new-beneficiary high value, and the
-recon-to-payment sequence rule. Measured via `benchmarks/bench_latency.py` before M1:
+recon-to-payment sequence rule; M2 added per-tool argument bindings so those rules see the field
+each tool really pays from. With all rules on, the in-process p99 measured 0.44 ms in the
+benchmark harness (sandbox run). Measured via `benchmarks/bench_latency.py` before M1:
 a full in-process guarded call has a p50 of 0.20 ms and p99 of 0.27 ms, and an out-of-process
 MCP Gateway `tools/call` roundtrip has a p50 of 0.37 ms and p99 of 0.54 ms.
 
-Known limits this roadmap exists to address: argument extraction only understands `amount`,
-`currency` and `beneficiary`; state is per process; step-up approval is a
+Known limits this roadmap exists to address: state is per process; step-up approval is a
 run-wide flag rather than per transaction; the audit log is tamper-evident but not tamper-proof;
 tool pinning covers names, not tool code.
 
@@ -85,14 +86,18 @@ New deterministic rules and stronger approval.
 - [x] **M1: Structuring, new beneficiary plus high value, and sequence rules.** Structuring is
   several payments just under a threshold that together exceed it; the sequence rule is
   enumeration followed by a payment within a window.
-- [ ] **M2: Argument binding.** Today the gateway (`gateway.py`) and the adapters
-  (`adapters/_common.py`) each read only `amount`, `currency` and `beneficiary`. A tool that
-  names its fields `value`, `payee` or `vpa`, or a bulk payout carrying a list of payees, is
-  invisible to every money rule.
+- [x] **M2: Argument binding.** The gateway and the adapters used to read only `amount`,
+  `currency` and `beneficiary`, so a tool that names its fields `value`, `payee` or `vpa`, or a
+  bulk payout carrying a list of payees, was invisible to every money rule.
   - A `tool_bindings:` policy section maps each tool to the argument paths for amount, currency
-    and beneficiary, with list aggregation for bulk payouts.
-  - A protected tool with no binding fails closed.
-  - One shared extraction function replaces the two copies.
+    (or a `fixed_currency`) and beneficiary. Paths such as `payments[*].amount` make a bulk call:
+    amounts are summed, every payee is checked by the new-beneficiary rule, mixed currencies are
+    unknown (fail-closed), and a negative element is refused rather than netted.
+  - `require_for_protected` refuses to load a policy with an unbound protected tool; the shipped
+    preset sets it. A missing, null or incomplete bound path is unresolved, which the detectors
+    already fail closed on protected tools.
+  - One shared `context.extract_tool_call_context` replaces the two copies and every adapter and
+    the gateway pass `shield.policy.tool_bindings` to it.
 - [ ] **M3: Per-transaction step-up.** Replaces the run-wide `hitl_step_up` flag.
   - An `ApprovalRequest` model (id, run, tool, amount, currency, beneficiary, arguments hash,
     expiry) that the host application can show to a human.
