@@ -98,5 +98,6 @@ Edit any line of `audit.jsonl` and the first command fails at that line.
 
 - [Architecture](architecture.md): how a call flows through the shield.
 - [Threat model](threat-model.md): what is and is not defended.
+- [Comparison](comparison.md): why enforcement at the execution layer.
 - [Integration](../README.md#integrating-with-a-host-application): manifest, schemas, key rotation,
   shared detector state.

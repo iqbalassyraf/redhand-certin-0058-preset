@@ -47,6 +47,7 @@ PAGES: tuple[Page, ...] = (
     Page("quickstart", "Quickstart", "docs/quickstart.md"),
     Page("architecture", "Architecture", "docs/architecture.md"),
     Page("demo", "Demo", "docs/demo.md", scripts=("cast.js", "player.js")),
+    Page("comparison", "Comparison", "docs/comparison.md"),
     Page("threat-model", "Threat model", "docs/threat-model.md"),
     Page("rules", "Rule catalog", "docs/rules.md"),
     Page(

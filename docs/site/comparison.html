@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comparison · redhand-certin-0058-preset</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top"><span class="brand">redhand-certin-0058-preset</span><nav><a href="index.html">Home</a><a href="quickstart.html">Quickstart</a><a href="architecture.html">Architecture</a><a href="demo.html">Demo</a><a href="comparison.html" aria-current="page">Comparison</a><a href="threat-model.html">Threat model</a><a href="rules.html">Rule catalog</a><a href="integration.html">Integration</a><a href="detection-results.html">Detection results</a></nav></header>
+<main>
+<h1 id="execution-layer-enforcement-vs-prompt-based-guardrails">Execution-layer enforcement vs prompt-based guardrails</h1>
+<p>Two different things get called a "guardrail" for an AI agent that can move money:</p>
+<ul><li><strong>A prompt-based guardrail</strong> is an instruction, or a second model that reads the conversation, asking the agent not to do something: a system prompt, a policy written in natural language, a classifier or judge that screens inputs and outputs.</li><li><strong>Execution-layer enforcement</strong> is a deterministic check on the tool call itself, at the moment the agent tries to run it. This package is one: it verifies a signed token, applies a declarative policy to the arguments, and refuses the call before the tool body executes.</li></ul>
+<p>They are not rivals. They answer different questions. This page says what each can honestly promise, and where this package stops.</p>
+<h2 id="what-each-can-guarantee">What each can guarantee</h2>
+<div class="tablewrap"><table><thead><tr><th>Property</th><th>Prompt-based guardrail</th><th>Execution-layer enforcement (this package)</th></tr></thead><tbody><tr><td>What it constrains</td><td>What the model is <em>asked</em> or <em>likely</em> to do</td><td>What a tool call is <em>allowed</em> to do</td></tr><tr><td>Decision</td><td>Probabilistic: a model's judgement</td><td>Deterministic: same inputs, same decision</td></tr><tr><td>Effect of prompt injection</td><td>The injected text is processed by the same kind of system the guardrail depends on, so it can be argued around</td><td>None: injected text cannot change a signature, a policy or a counter</td></tr><tr><td>If the agent is compromised or confused</td><td>The guardrail is part of what is compromised</td><td>The call still has to pass the check to reach the tool</td></tr><tr><td>Identity and scope</td><td>Stated in text</td><td>Cryptographic: Ed25519 token bound to one run, one environment and a fixed tool list</td></tr><tr><td>Behaviour over time</td><td>Judged per message, often without memory</td><td>Sliding windows across calls, runs, payees and currencies</td></tr><tr><td>Human approval</td><td>A request in the chat</td><td>A signed, single-use approval bound to one transaction</td></tr><tr><td>Evidence</td><td>A transcript</td><td>A hash-chained audit log that verifies offline and shows tampering</td></tr><tr><td>Latency and cost per call</td><td>A model call</td><td>In-process microseconds, no model, no network (see below)</td></tr><tr><td>Safe rollout</td><td>Hard to measure what it would have blocked</td><td>Observe-only mode records every <code>would_have_blocked</code> before you enforce</td></tr><tr><td>Understands intent and context</td><td>Yes, that is its strength</td><td>No: it sees fields, tokens and counters, not meaning</td></tr></tbody></table></div>
+<p>The honest summary: a prompt-based guardrail can make a well-behaved agent behave better, and it is good at things a rule cannot express. It cannot be the thing that stops a <strong>manipulated</strong> agent from reaching a payment API, because it is advice, delivered to the party being attacked. Enforcement at the execution layer is the floor that still holds when the advice is ignored.</p>
+<h2 id="what-this-package-does-with-numbers-you-can-reproduce">What this package does, with numbers you can reproduce</h2>
+<p>The replay corpus has 108 synthetic scenarios. 73 are attacks the preset should catch and 26 are ordinary traffic. On that corpus the preset stops 73 of 73 attacks (every expected rule fired), wrongly flags 0 of 26 benign scenarios, and has 5 documented gaps (attacks it does not catch, by design) and 4 documented false positives, all listed in the <a href="detection-results.html">detection results</a>.</p>
+<p><strong>Read those numbers carefully.</strong> The corpus is synthetic and written to exercise each rule. A 100% result on it is a regression check that every control does what it claims on the cases we wrote down. It is not a measurement of how the preset would perform on real traffic, and it is not a security guarantee.</p>
+<p>Decision latency is measured, not claimed: the decision core takes a median of about 0.15 ms on the machine that produced the benchmark table in the README, against a 2 ms budget. It is machine-dependent, so run it yourself.</p>
+<p>Reproduce both:</p>
+<pre class="lang-bash"><code>redhand-shield replay            # the corpus numbers above
+python benchmarks/bench_latency.py   # latency on your hardware</code></pre>
+<h2 id="what-enforcement-does-not-do">What enforcement does not do</h2>
+<p>Enforcement at the execution layer is not a complete defence. Specifically:</p>
+<ul><li><strong>It trusts its own process and keys.</strong> It runs inside the agent's process. An attacker with arbitrary code execution can bypass or patch it, and a stolen signing key mints valid tokens. Run tools behind the out-of-process gateway or a sandbox, and keep keys out of the agent.</li><li><strong>It judges the fields you bind.</strong> A tool that moves money through an argument nobody bound is not judged by the money rules. Bind protected tools and let them fail closed.</li><li><strong>The first micro-probe is indistinguishable from a small legitimate payment.</strong> The breaker trips on the second, as the advisory describes.</li><li><strong>It has no sense of intent.</strong> It cannot tell a legitimate large payment from a coerced one that stays inside policy. Human approval shows a person what is about to happen; the host must render that faithfully.</li><li><strong>State is per process by default.</strong> Several workers need a shared window store.</li></ul>
+<p>The <a href="threat-model.html">threat model</a> lists these and the mitigations in full.</p>
+<h2 id="use-both">Use both</h2>
+<ul><li>Keep the prompt-level guidance and any model-based screening you have. They catch the cases a rule cannot express and reduce how often the floor is hit.</li><li>Put enforcement at the tool boundary for anything that moves money or changes access. It is cheap, deterministic, and still works on the day the model is talked into something.</li><li>Roll it out in observe-only mode first, read the evidence report, then enforce.</li></ul>
+<p>This page makes no comparison with any named product. It compares two kinds of control.</p>
+</main>
+<footer>Generated from the repository's Markdown by <code>scripts/build_docs.py</code>. Source: <a href="https://github.com/iqbalassyraf/redhand-certin-0058-preset">https://github.com/iqbalassyraf/redhand-certin-0058-preset</a></footer>
+</body>
+</html>

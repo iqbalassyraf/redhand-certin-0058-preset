@@ -136,3 +136,34 @@ def test_player_makes_no_network_calls() -> None:
     js = (ROOT / "docs" / "demo" / "player.js").read_text("utf-8")
     for needle in ("fetch(", "XMLHttpRequest", "WebSocket", "http://", "https://", "eval("):
         assert needle not in js, needle
+
+
+def _summary() -> dict[str, str]:
+    text = (ROOT / "docs" / "detection-results.md").read_text("utf-8")
+    block = text.split("## Summary", 1)[1].split("##", 1)[0]
+    rows = re.findall(r"^\| (.+?) \| (.+?) \|$", block, re.M)
+    return {k: v for k, v in rows if k not in ("Measure", ":---")}
+
+
+def test_comparison_quotes_the_generated_results() -> None:
+    s = _summary()
+    page = (ROOT / "docs" / "comparison.md").read_text("utf-8")
+    flat = " ".join(page.split())
+    scenarios = s["Scenarios"]
+    attacks = s["Attack scenarios the preset should catch"]
+    benign = s["Benign scenarios checked"]
+    stopped = s["Attacks stopped (every expected rule fired)"].split()[0]
+    gaps = s["Documented gaps (attacks not caught, by design)"]
+    fps = s["Documented false positives"]
+    assert f"has {scenarios} synthetic scenarios" in flat
+    assert f"{attacks} are attacks" in flat and f"{benign} are ordinary" in flat
+    assert f"stops {stopped} of {attacks} attacks" in flat
+    assert f"wrongly flags {s['Benign scenarios wrongly flagged'].split()[0]} of {benign}" in flat
+    assert f"{gaps} documented gaps" in flat and f"{fps} documented false positives" in flat
+
+
+def test_comparison_states_its_limits() -> None:
+    page = " ".join((ROOT / "docs" / "comparison.md").read_text("utf-8").split())
+    assert "synthetic" in page and "not a security guarantee" in page
+    assert "What enforcement does not do" in page
+    assert "no comparison with any named product" in page

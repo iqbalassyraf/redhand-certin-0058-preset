@@ -11,6 +11,7 @@ path.**
 1. [Quickstart](quickstart.md): from `pip install` to a protected agent in about two minutes.
 2. [Architecture](architecture.md): how a call flows through the shield.
 3. [Threat model](threat-model.md): what is defended, and what is not.
+   [Comparison](comparison.md) explains why enforcement sits at the execution layer.
 4. [Rule catalog](rules.md): every rule, its severity, and whether it can be tuned or waived.
 5. [Integration](../README.md#integrating-with-a-host-application): manifest, schemas, key
    rotation, shared detector state.
