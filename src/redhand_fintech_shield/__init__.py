@@ -13,6 +13,7 @@ from .detectors import QuarantineRegistry, QuarantineTracker
 from .exceptions import (
     AgentQuarantinedError,
     AuditChainError,
+    CumulativeCapError,
     HITLRequiredError,
     MicroTxProbeError,
     MissingContextError,
@@ -29,9 +30,11 @@ from .exceptions import (
 from .gateway import MCPGateway, ToolDefinition
 from .interceptor import Evaluation, Shield, redhand_guard
 from .models import (
+    AggregationPolicy,
     ApprovalPolicy,
     ApprovalRequest,
     AuditRecord,
+    CumulativeCapPolicy,
     Decision,
     Env,
     M42Finding,
@@ -81,6 +84,7 @@ __all__ = [
     "AgentQuarantinedError",
     "AgentTokenIssuer",
     "AgentTokenVerifier",
+    "AggregationPolicy",
     "ApprovalIssuer",
     "ApprovalPolicy",
     "ApprovalRequest",
@@ -91,6 +95,8 @@ __all__ = [
     "AuditRecord",
     "ChainVerificationReport",
     "Clock",
+    "CumulativeCapError",
+    "CumulativeCapPolicy",
     "Decision",
     "Env",
     "Evaluation",

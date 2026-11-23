@@ -24,7 +24,8 @@ micro_tx:
 
 # --- Stage 2: machine-speed enumeration bursts, keyed by (agent run, tool) ---
 velocity:
-  max_calls: 20
+  max_calls: 20                   # per (agent run, tool)
+  max_total_calls: 40             # per agent run across ALL tools, so rotating tools does not help
   window_seconds: 1
 
 # --- Stage 3: merchant settlement & disbursement API abuse ---
@@ -71,6 +72,8 @@ structuring:
     SGD: "13500"
   window_seconds: 300
   min_tx_count: 2                 # single large tx routes to HITL rather than structuring
+  scopes: [run, subject, beneficiary]   # also add up per token subject and per payee ACROSS runs
+  # max_keys: 100000              # windows kept; beyond it the call fails closed
 
 # --- Stage 3: unseen/new beneficiary high-value disbursement gate ---
 # Requires HITL step-up when funds are routed to a beneficiary not in known_beneficiaries.
@@ -98,6 +101,40 @@ sequence:
     - bulk_payout
   min_recon_calls: 3
   window_seconds: 30
+
+# --- Cross-currency aggregation: static, operator-reviewed rates (units of USD per 1 unit) ---
+# Structuring and the cumulative caps add payments up in the base currency, so splitting a payout
+# across currencies does not evade them. These rates are APPROXIMATIONS implied by the thresholds
+# in this file (USD 10,000 ~ INR 900,000 ~ MYR 45,000 ~ SGD 13,500); the operator must review them.
+# A currency without a rate cannot be converted and is judged in its own currency (fail-closed).
+aggregation:
+  base_currency: USD
+  rates:
+    INR: "0.0111"
+    MYR: "0.2222"
+    SGD: "0.7407"
+
+# --- Stage 2: slow drain. A rolling cap on what one run, and one subject, may move ---
+# A payment that would take the total over a cap needs per-transaction step-up (or is blocked and
+# the run and subject quarantined, with action: block). Refused payments are not counted.
+cumulative_cap:
+  enabled: true
+  protected_tools:
+    - settle_merchant
+    - initiate_disbursement
+    - bulk_payout
+  window_seconds: 86400           # rolling 24 hours
+  per_run:
+    USD: "50000"
+    INR: "4500000"
+    MYR: "225000"
+    SGD: "67500"
+  per_subject:                    # across every run of one token subject
+    USD: "200000"
+    INR: "18000000"
+    MYR: "900000"
+    SGD: "270000"
+  action: hitl_required           # hitl_required | block
 
 # --- Argument bindings: where each tool keeps its amount, currency and payee(s) ---
 # The money rules judge the bound fields only. A tool that names its fields differently, or pays a

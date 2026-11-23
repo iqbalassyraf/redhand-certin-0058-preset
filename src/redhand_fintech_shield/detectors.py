@@ -13,7 +13,7 @@ import math
 import threading
 from collections import deque
 from collections.abc import Hashable
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from itertools import islice
@@ -21,6 +21,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .models import (
+    AggregationPolicy,
+    CumulativeCapPolicy,
     Decision,
     HITLPolicy,
     MicroTxPolicy,
@@ -32,6 +34,7 @@ from .models import (
     TokenClaims,
     VelocityPolicy,
 )
+from .normalize import canonical_beneficiary
 
 _log = logging.getLogger(__name__)
 
@@ -48,6 +51,7 @@ R_HITL = "CIAD-2026-0058.R3.hitl_required"
 R_NEW_BENEFICIARY = "CIAD-2026-0058.R3.new_beneficiary_high_value"
 R_OFF_HOURS_HITL = "CIAD-2026-0058.R4.off_hours_hitl_required"
 R_OFF_HOURS = "CIAD-2026-0058.R4.off_hours_tightened"
+R_CUMULATIVE_CAP = "CIAD-2026-0058.R2.cumulative_cap"
 R_APPROVAL_ACCEPTED = "CIAD-2026-0058.R3.approval_accepted"
 R_APPROVAL_REJECTED = "CIAD-2026-0058.R3.approval_rejected"
 R_LEGACY_STEP_UP = "CIAD-2026-0058.R3.legacy_run_wide_step_up"
@@ -65,6 +69,8 @@ class Violation:
     decision: Decision
     detail: str
     quarantine: bool = False
+    # Also contain every run of the token subject (a subject-scope aggregation tripped).
+    quarantine_subject: bool = False
 
 
 # --------------------------------------------------------------------------------------
@@ -83,6 +89,9 @@ class EffectivePolicy:
     mandatory_hitl: bool
     structuring_thresholds: dict[str, Decimal]
     new_beneficiary_thresholds: dict[str, Decimal]
+    max_total_calls: int | None = None
+    cap_run: dict[str, Decimal] = field(default_factory=dict)
+    cap_subject: dict[str, Decimal] = field(default_factory=dict)
 
 
 class OffHoursEvaluator:
@@ -92,6 +101,8 @@ class OffHoursEvaluator:
         self._p: OffHoursPolicy = policy.off_hours
         self._tz = ZoneInfo(self._p.timezone)
         factor = Decimal(str(self._p.tighten_factor))
+        total = policy.velocity.max_total_calls
+        cap = policy.cumulative_cap
         self._normal = EffectivePolicy(
             off_hours_reason=None,
             max_probes=policy.micro_tx.max_probes,
@@ -100,6 +111,9 @@ class OffHoursEvaluator:
             mandatory_hitl=False,
             structuring_thresholds=dict(policy.structuring.thresholds),
             new_beneficiary_thresholds=dict(policy.new_beneficiary.thresholds),
+            max_total_calls=total,
+            cap_run=dict(cap.per_run),
+            cap_subject=dict(cap.per_subject),
         )
         self._tight = EffectivePolicy(
             off_hours_reason="",  # filled per call
@@ -115,6 +129,11 @@ class OffHoursEvaluator:
             new_beneficiary_thresholds={
                 k: v * factor for k, v in policy.new_beneficiary.thresholds.items()
             },
+            max_total_calls=(
+                None if total is None else max(1, math.floor(total * self._p.tighten_factor))
+            ),
+            cap_run={k: v * factor for k, v in cap.per_run.items()},
+            cap_subject={k: v * factor for k, v in cap.per_subject.items()},
         )
 
     def reason(self, now: datetime) -> str | None:
@@ -139,16 +158,7 @@ class OffHoursEvaluator:
         why = self.reason(now)
         if why is None:
             return self._normal
-        t = self._tight
-        return EffectivePolicy(
-            why,
-            t.max_probes,
-            t.max_velocity_calls,
-            t.hitl_thresholds,
-            t.mandatory_hitl,
-            t.structuring_thresholds,
-            t.new_beneficiary_thresholds,
-        )
+        return replace(self._tight, off_hours_reason=why)
 
 
 # --------------------------------------------------------------------------------------
@@ -291,30 +301,48 @@ class MicroTxProbeDetector:
 
 
 class VelocityDetector:
-    """Stage 2: machine-speed enumeration bursts per (agent run, tool)."""
+    """Stage 2: machine-speed enumeration bursts per (agent run, tool) and per run overall."""
 
     def __init__(self, policy: VelocityPolicy) -> None:
         self._p = policy
         self._windows = KeyedSlidingWindow(policy.window_seconds, maxlen=policy.max_calls + 1)
+        # Rotating between tools keeps every per-tool count low; the all-tools window does not.
+        self._total = (
+            KeyedSlidingWindow(policy.window_seconds, maxlen=policy.max_total_calls + 1)
+            if policy.max_total_calls is not None
+            else None
+        )
 
     def observe(
         self, agent_run_id: str, tool_name: str, now: float, effective: EffectivePolicy
     ) -> Violation | None:
         count = self._windows.hit((agent_run_id, tool_name), now)
-        if count <= effective.max_velocity_calls:
-            return None
+        total = self._total.hit(agent_run_id, now) if self._total is not None else 0
         tightened = (
             f" [tightened for {effective.off_hours_reason}]" if effective.off_hours_reason else ""
         )
-        return Violation(
-            R_VELOCITY,
-            "high",
-            2,
-            Decision.BLOCK,
-            f"{tool_name!r} called more than {effective.max_velocity_calls} times within "
-            f"{self._p.window_seconds:g}s{tightened}",
-            quarantine=True,
-        )
+        if count > effective.max_velocity_calls:
+            return Violation(
+                R_VELOCITY,
+                "high",
+                2,
+                Decision.BLOCK,
+                f"{tool_name!r} called more than {effective.max_velocity_calls} times within "
+                f"{self._p.window_seconds:g}s{tightened}",
+                quarantine=True,
+            )
+        limit = effective.max_total_calls
+        if self._total is not None and limit is not None and total > limit:
+            return Violation(
+                R_VELOCITY,
+                "high",
+                2,
+                Decision.BLOCK,
+                f"more than {limit} calls across all tools within "
+                f"{self._p.window_seconds:g}s (tool rotation){tightened}",
+                quarantine=True,
+            )
+        return None
 
 
 class HighValueGate:
@@ -371,43 +399,135 @@ class _WindowSum:
         self._entries: deque[tuple[float, Decimal]] = deque()
         self._total = Decimal("0")
 
-    def add(self, now: float, amount: Decimal) -> tuple[int, Decimal, bool]:
+    def _expire(self, now: float) -> None:
         entries = self._entries
         cutoff = now - self._window
-        total = self._total
         while entries and entries[0][0] <= cutoff:
             _, old = entries.popleft()
-            total -= old
+            self._total -= old
+
+    def add(self, now: float, amount: Decimal) -> tuple[int, Decimal, bool]:
+        self._expire(now)
+        entries = self._entries
         saturated = len(entries) >= self._maxlen
         if saturated:
             _, dropped = entries.popleft()
-            total -= dropped
+            self._total -= dropped
         entries.append((now, amount))
-        total += amount
-        self._total = total
-        return len(entries), total, saturated
+        self._total += amount
+        return len(entries), self._total, saturated
+
+    def snapshot(self, now: float) -> tuple[int, Decimal]:
+        """Entries and total in the window at ``now``, without recording anything."""
+        self._expire(now)
+        return len(self._entries), self._total
 
     def newest(self) -> float | None:
         return self._entries[-1][0] if self._entries else None
 
 
+class _WindowTable:
+    """Keyed :class:`_WindowSum` windows with amortised idle eviction and a hard key limit.
+
+    The key space can be attacker controlled (a payee id), so it is bounded: at the limit, expired
+    windows are purged (at most once a second, so a full table cannot be turned into a CPU sink)
+    and if there is still no room the caller must fail closed.
+    """
+
+    def __init__(
+        self,
+        window_seconds: float,
+        *,
+        max_entries: int,
+        max_keys: int,
+        sweep_every: int,
+        sweep_batch: int,
+    ) -> None:
+        self.window = window_seconds
+        self.max_entries = max_entries
+        self._max_keys = max_keys
+        self._sweep_every = sweep_every
+        self._sweep_batch = sweep_batch
+        self._windows: dict[tuple[str, str, str], _WindowSum] = {}
+        self._ops = 0
+        self._last_purge = -math.inf
+
+    def get(self, key: tuple[str, str, str]) -> _WindowSum | None:
+        return self._windows.get(key)
+
+    def has_room(self, now: float) -> bool:
+        if len(self._windows) < self._max_keys:
+            return True
+        if now - self._last_purge >= 1.0:
+            self._last_purge = now
+            cutoff = now - self.window
+            for key in [
+                k for k, w in self._windows.items() if (n := w.newest()) is None or n <= cutoff
+            ]:
+                del self._windows[key]
+        return len(self._windows) < self._max_keys
+
+    def get_or_create(self, key: tuple[str, str, str]) -> _WindowSum:
+        win = self._windows.get(key)
+        if win is None:
+            win = self._windows[key] = _WindowSum(self.window, self.max_entries)
+        return win
+
+    def tick(self, now: float) -> None:
+        self._ops += 1
+        if self._ops % self._sweep_every == 0:
+            cutoff = now - self.window
+            for key in list(islice(self._windows, self._sweep_batch)):
+                win = self._windows[key]
+                newest = win.newest()
+                if newest is None or newest <= cutoff:
+                    del self._windows[key]
+                else:
+                    self._windows[key] = self._windows.pop(key)
+
+    def __len__(self) -> int:
+        return len(self._windows)
+
+
+def _convert(
+    aggregation: AggregationPolicy | None, amount: Decimal, currency: str | None
+) -> tuple[Decimal, str]:
+    """Amount and currency key to aggregate under: the base currency if convertible."""
+    if aggregation is not None and (converted := aggregation.to_base(amount, currency)):
+        return converted
+    return amount, currency or ""
+
+
+def _payees(beneficiaries: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(c for c in map(canonical_beneficiary, beneficiaries) if c))
+
+
 class StructuringDetector:
-    """Stage 2: split-transaction structuring (smurfing) per (agent run, currency)."""
+    """Stage 2: split-transaction structuring (smurfing).
+
+    Payments are added up per agent run and, if enabled in ``scopes``, per token subject and per
+    payee across runs, so a fresh run id or a different payee does not start a fresh window.
+    """
 
     def __init__(
         self,
         policy: StructuringPolicy,
         *,
+        aggregation: AggregationPolicy | None = None,
         max_entries: int = 16384,
         sweep_every: int = 256,
         sweep_batch: int = 256,
     ) -> None:
         self._p = policy
+        self._agg = aggregation
         self._max_entries = max_entries
-        self._sweep_every = sweep_every
-        self._sweep_batch = sweep_batch
-        self._windows: dict[tuple[str, str], _WindowSum] = {}
-        self._ops = 0
+        self._table = _WindowTable(
+            policy.window_seconds,
+            max_entries=max_entries,
+            max_keys=policy.max_keys,
+            sweep_every=sweep_every,
+            sweep_batch=sweep_batch,
+        )
 
     def observe(
         self,
@@ -418,6 +538,9 @@ class StructuringDetector:
         now: float,
         effective: EffectivePolicy,
         claims: TokenClaims | None = None,
+        *,
+        subject: str | None = None,
+        beneficiaries: tuple[str, ...] = (),
     ) -> Violation | None:
         del claims  # Structuring is never bypassed by run-wide hitl_step_up.
         if not self._p.enabled or amount is None:
@@ -425,14 +548,51 @@ class StructuringDetector:
         if self._p.protected_tools and tool_name not in self._p.protected_tools:
             return None
 
-        key = (agent_run_id, currency or "")
-        win = self._windows.get(key)
+        amt, ccy = _convert(self._agg, amount, currency)
+        scopes: list[tuple[str, str]] = [("run", agent_run_id)]
+        if "subject" in self._p.scopes and subject:
+            scopes.append(("subject", subject))
+        if "beneficiary" in self._p.scopes and len(payees := _payees(beneficiaries)) == 1:
+            scopes.append(("beneficiary", payees[0]))
+
+        found: list[tuple[str, Violation]] = []
+        for scope, ident in scopes:
+            v = self._observe_scope(scope, ident, ccy, currency, amt, now, effective)
+            if v is not None:
+                found.append((scope, v))
+        self._table.tick(now)
+        if not found:
+            return None
+        first = found[0][1]
+        if any(scope == "subject" for scope, _ in found):
+            first = replace(first, quarantine_subject=True)
+        return first
+
+    def _observe_scope(
+        self,
+        scope: str,
+        ident: str,
+        ccy: str,
+        original_currency: str | None,
+        amount: Decimal,
+        now: float,
+        effective: EffectivePolicy,
+    ) -> Violation | None:
+        where = "" if scope == "run" else f" [{scope} {ident!r}, across runs]"
+        key = (scope, ident, ccy)
+        win = self._table.get(key)
         if win is None:
-            win = self._windows[key] = _WindowSum(self._p.window_seconds, self._max_entries)
+            if not self._table.has_room(now):
+                return Violation(
+                    R_STRUCTURING,
+                    "critical",
+                    2,
+                    Decision.BLOCK,
+                    f"structuring tracker is full (fail-closed){where}",
+                    quarantine=True,
+                )
+            win = self._table.get_or_create(key)
         count, total, saturated = win.add(now, amount)
-        self._ops += 1
-        if self._ops % self._sweep_every == 0:
-            self._sweep(now)
 
         if saturated:
             return Violation(
@@ -441,23 +601,24 @@ class StructuringDetector:
                 2,
                 Decision.BLOCK,
                 f"structuring window reached capacity ({self._max_entries} entries) within "
-                f"{self._p.window_seconds:g}s (fail-closed)",
+                f"{self._p.window_seconds:g}s (fail-closed){where}",
                 quarantine=True,
             )
 
         if count < self._p.min_tx_count:
             return None
 
-        threshold = effective.structuring_thresholds.get(currency) if currency else None
+        threshold = effective.structuring_thresholds.get(ccy) if ccy else None
+        shown = ccy or "MISSING"
         if threshold is None:
             return Violation(
                 R_STRUCTURING,
                 "critical",
                 2,
                 Decision.BLOCK,
-                f"{count} transactions totaling {total} {currency or 'MISSING'} within "
-                f"{self._p.window_seconds:g}s; currency {currency or 'MISSING'!r} has no "
-                "configured structuring threshold (fail-closed)",
+                f"{count} transactions totaling {total} {shown} within "
+                f"{self._p.window_seconds:g}s; currency {shown!r} has no "
+                f"configured structuring threshold (fail-closed){where}",
                 quarantine=True,
             )
 
@@ -467,27 +628,146 @@ class StructuringDetector:
                 if effective.off_hours_reason
                 else ""
             )
+            converted = (
+                f" (converted to {ccy} from {original_currency})"
+                if original_currency and ccy != original_currency
+                else ""
+            )
             return Violation(
                 R_STRUCTURING,
                 "critical",
                 2,
                 Decision.BLOCK,
-                f"{count} transactions totaling {total} {currency} within "
+                f"{count} transactions totaling {total} {ccy} within "
                 f"{self._p.window_seconds:g}s exceeds structuring threshold "
-                f"{threshold}{tightened}",
+                f"{threshold}{tightened}{converted}{where}",
                 quarantine=True,
             )
         return None
 
-    def _sweep(self, now: float) -> None:
-        cutoff = now - self._p.window_seconds
-        for key in list(islice(self._windows, self._sweep_batch)):
-            win = self._windows[key]
-            newest = win.newest()
-            if newest is None or newest <= cutoff:
-                del self._windows[key]
+
+class CumulativeCapDetector:
+    """Stage 2: slow drain. A rolling cap on what one run and one subject may move.
+
+    ``check`` is read-only and ``record`` adds the payment, so a call that is refused or waiting
+    for step-up is not counted; the interceptor runs both inside one critical section.
+    """
+
+    def __init__(
+        self,
+        policy: CumulativeCapPolicy,
+        *,
+        aggregation: AggregationPolicy | None = None,
+        max_entries: int = 16384,
+        sweep_every: int = 256,
+        sweep_batch: int = 256,
+    ) -> None:
+        self._p = policy
+        self._agg = aggregation
+        self._max_entries = max_entries
+        self._table = _WindowTable(
+            policy.window_seconds,
+            max_entries=max_entries,
+            max_keys=policy.max_keys,
+            sweep_every=sweep_every,
+            sweep_batch=sweep_batch,
+        )
+
+    def _applies(self, tool_name: str, amount: Decimal | None) -> bool:
+        if not self._p.enabled or amount is None:
+            return False
+        return not self._p.protected_tools or tool_name in self._p.protected_tools
+
+    def _scopes(self, agent_run_id: str, subject: str | None) -> list[tuple[str, str]]:
+        scopes: list[tuple[str, str]] = []
+        if self._p.per_run:
+            scopes.append(("run", agent_run_id))
+        if self._p.per_subject and subject:
+            scopes.append(("subject", subject))
+        return scopes
+
+    def _violation(self, scope: str, ident: str, detail: str) -> Violation:
+        block = self._p.action == "block"
+        where = "" if scope == "run" else f" [{scope} {ident!r}, across runs]"
+        return Violation(
+            R_CUMULATIVE_CAP,
+            "high",
+            2,
+            Decision.BLOCK if block else Decision.HITL_REQUIRED,
+            f"{detail}{where}",
+            quarantine=block,
+            quarantine_subject=block and scope == "subject",
+        )
+
+    def check(
+        self,
+        agent_run_id: str,
+        tool_name: str,
+        amount: Decimal | None,
+        currency: str | None,
+        now: float,
+        effective: EffectivePolicy,
+        *,
+        subject: str | None = None,
+    ) -> Violation | None:
+        if amount is None or not self._applies(tool_name, amount):
+            return None
+        amt, ccy = _convert(self._agg, amount, currency)
+        shown = ccy or "MISSING"
+        for scope, ident in self._scopes(agent_run_id, subject):
+            caps = effective.cap_run if scope == "run" else effective.cap_subject
+            cap = caps.get(ccy) if ccy else None
+            if cap is None:
+                return self._violation(
+                    scope, ident, f"currency {shown!r} has no configured {scope} cap (fail-closed)"
+                )
+            win = self._table.get((scope, ident, ccy))
+            if win is None:
+                if not self._table.has_room(now):
+                    return self._violation(
+                        scope, ident, "cumulative-cap tracker is full (fail-closed)"
+                    )
+                size, current = 0, Decimal(0)
             else:
-                self._windows[key] = self._windows.pop(key)
+                size, current = win.snapshot(now)
+            if size >= self._max_entries:
+                return self._violation(
+                    scope,
+                    ident,
+                    f"cumulative-cap window reached capacity ({self._max_entries} entries) "
+                    "(fail-closed)",
+                )
+            projected = current + amt
+            if projected > cap:
+                tightened = (
+                    f" [tightened for {effective.off_hours_reason}]"
+                    if effective.off_hours_reason
+                    else ""
+                )
+                return self._violation(
+                    scope,
+                    ident,
+                    f"{scope} total would reach {projected} {ccy} within "
+                    f"{self._p.window_seconds:g}s, above the cap {cap}{tightened}",
+                )
+        return None
+
+    def record(
+        self,
+        agent_run_id: str,
+        tool_name: str,
+        amount: Decimal | None,
+        currency: str | None,
+        now: float,
+        *,
+        subject: str | None = None,
+    ) -> None:
+        if amount is None or not self._applies(tool_name, amount):
+            return
+        amt, ccy = _convert(self._agg, amount, currency)
+        for scope, ident in self._scopes(agent_run_id, subject):
+            self._table.get_or_create((scope, ident, ccy)).add(now, amt)
+        self._table.tick(now)
 
 
 class NewBeneficiaryDetector:
@@ -511,7 +791,8 @@ class NewBeneficiaryDetector:
         effective: EffectivePolicy,
         beneficiaries: tuple[str, ...] = (),
     ) -> Violation | None:
-        payees = tuple(dict.fromkeys(((beneficiary,) if beneficiary else ()) + beneficiaries))
+        raw = ((beneficiary,) if beneficiary else ()) + beneficiaries
+        payees = tuple(dict.fromkeys(c for c in map(canonical_beneficiary, raw) if c))
         if not self._p.enabled or not payees:
             return None
         if self._protected_tools is not None and tool_name not in self._protected_tools:

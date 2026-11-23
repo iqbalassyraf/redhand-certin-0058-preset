@@ -72,3 +72,7 @@ class NewBeneficiaryError(ShieldError):
 
 class SequenceViolationError(ShieldError):
     """Reconnaissance-to-payment kill-chain sequence detected (stage 2)."""
+
+
+class CumulativeCapError(ShieldError):
+    """A rolling cumulative cap on what a run or subject may move was exceeded (stage 2)."""

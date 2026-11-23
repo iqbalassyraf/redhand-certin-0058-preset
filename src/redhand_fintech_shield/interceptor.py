@@ -30,12 +30,14 @@ from .approvals import (
     NonceRegistry,
     binding_mismatch,
     build_request,
+    payees_of,
 )
 from .audit import HashChainedAuditLog
 from .crypto import AgentTokenVerifier, load_public_key_pem, utcnow
 from .detectors import (
     R_APPROVAL_ACCEPTED,
     R_APPROVAL_REJECTED,
+    R_CUMULATIVE_CAP,
     R_ENV_PIVOT,
     R_HITL,
     R_LEGACY_STEP_UP,
@@ -49,6 +51,7 @@ from .detectors import (
     R_TOKEN_INVALID,
     R_TOOL_NOT_PINNED,
     R_VELOCITY,
+    CumulativeCapDetector,
     HighValueGate,
     MicroTxProbeDetector,
     NewBeneficiaryDetector,
@@ -61,6 +64,7 @@ from .detectors import (
 )
 from .exceptions import (
     AgentQuarantinedError,
+    CumulativeCapError,
     HITLRequiredError,
     MicroTxProbeError,
     MissingContextError,
@@ -108,6 +112,7 @@ _EXCEPTION_FOR_RULE: dict[str, type[ShieldError]] = {
     R_SEQUENCE: SequenceViolationError,
     R_HITL: HITLRequiredError,
     R_APPROVAL_REJECTED: HITLRequiredError,
+    R_CUMULATIVE_CAP: CumulativeCapError,
     R_NEW_BENEFICIARY: NewBeneficiaryError,
     R_OFF_HOURS_HITL: HITLRequiredError,
 }
@@ -185,7 +190,8 @@ class Shield:
         self._off_hours = OffHoursEvaluator(policy)
         self._micro = MicroTxProbeDetector(policy.micro_tx)
         self._velocity = VelocityDetector(policy.velocity)
-        self._structuring = StructuringDetector(policy.structuring)
+        self._structuring = StructuringDetector(policy.structuring, aggregation=policy.aggregation)
+        self._cap = CumulativeCapDetector(policy.cumulative_cap, aggregation=policy.aggregation)
         self._sequence = SequenceRuleDetector(policy.sequence)
         self._hitl = HighValueGate(policy.hitl)
         self._new_beneficiary = NewBeneficiaryDetector(
@@ -353,6 +359,20 @@ class Shield:
         # Detectors key their state on the agent run id. That id is only trustworthy once the token
         # has been verified, so unauthenticated calls never touch (or quarantine) another run.
         if claims is not None:
+            # A subject-scope detector can contain every run of a token subject. The subject is
+            # only trustworthy now that the token has verified.
+            if (reason := self.quarantine.reason(f"subject:{claims.sub}")) is not None:
+                violations.append(
+                    Violation(
+                        R_QUARANTINED,
+                        "critical",
+                        0,
+                        Decision.BLOCK,
+                        f"subject {claims.sub!r} is quarantined: {reason}",
+                    )
+                )
+                if enforce:
+                    return self._finish(ctx, violations, now_dt, t0, subject=claims.sub)
             if claims.env != ctx.target_env:
                 violations.append(
                     Violation(
@@ -408,21 +428,35 @@ class Shield:
             if new_ben is not None:
                 gate_violations.append(new_ben)
 
+            # One critical section covers the cap check, step-up resolution, every window and the
+            # cap record, so concurrent calls cannot both slip under a cap, and a call that is
+            # refused or waiting for step-up is never counted. Verifying an approval inside it only
+            # happens for calls that carry one.
             approval_notes: list[Violation] = []
-            if any(v.decision is Decision.HITL_REQUIRED for v in gate_violations):
-                cleared, approval_notes = self._resolve_step_up(
-                    ctx,
-                    claims,
-                    [v for v in gate_violations if v.decision is Decision.HITL_REQUIRED],
-                )
-                if cleared:
-                    gate_violations = [
-                        v for v in gate_violations if v.decision is not Decision.HITL_REQUIRED
-                    ]
-
-            has_hitl_rejection = any(v.decision is Decision.HITL_REQUIRED for v in gate_violations)
-
             with self._state_lock:
+                cap_violation = self._cap.check(
+                    ctx.agent_run_id,
+                    ctx.tool_name,
+                    ctx.amount,
+                    ctx.currency,
+                    now,
+                    effective,
+                    subject=claims.sub,
+                )
+                if cap_violation is not None:
+                    gate_violations.append(cap_violation)
+
+                pending = [v for v in gate_violations if v.decision is Decision.HITL_REQUIRED]
+                if pending:
+                    cleared, approval_notes = self._resolve_step_up(ctx, claims, pending)
+                    if cleared:
+                        gate_violations = [
+                            v for v in gate_violations if v.decision is not Decision.HITL_REQUIRED
+                        ]
+                has_hitl_rejection = any(
+                    v.decision is Decision.HITL_REQUIRED for v in gate_violations
+                )
+
                 probe = self._micro.observe(
                     ctx.agent_run_id, ctx.amount, ctx.currency, now, effective
                 )
@@ -438,17 +472,37 @@ class Shield:
                         now,
                         effective,
                         claims,
+                        subject=claims.sub,
+                        beneficiaries=payees_of(ctx),
                     )
                 )
                 sequence = self._sequence.observe(ctx.agent_run_id, ctx.tool_name, now)
+                if not has_hitl_rejection and (
+                    cap_violation is None or cap_violation not in gate_violations
+                ):
+                    self._cap.record(
+                        ctx.agent_run_id,
+                        ctx.tool_name,
+                        ctx.amount,
+                        ctx.currency,
+                        now,
+                        subject=claims.sub,
+                    )
             violations.extend(v for v in (probe, burst, structuring, sequence) if v is not None)
             violations.extend(gate_violations)
             violations.extend(approval_notes)
 
-        return self._finish(ctx, violations, now_dt, t0)
+        return self._finish(
+            ctx, violations, now_dt, t0, subject=claims.sub if claims is not None else None
+        )
 
     def _finish(
-        self, ctx: ToolCallContext, violations: list[Violation], now_dt: datetime, t0: int
+        self,
+        ctx: ToolCallContext,
+        violations: list[Violation],
+        now_dt: datetime,
+        t0: int,
+        subject: str | None = None,
     ) -> Evaluation:
         decision = Decision.ALLOW
         for v in violations:
@@ -470,15 +524,18 @@ class Shield:
         # Containment is recorded in BOTH modes (observe mode never consults it to block).
         if self.policy.quarantine_on_block:
             for v in violations:
-                if v.quarantine:
+                if not v.quarantine:
+                    continue
+                keys = [ctx.agent_run_id]
+                if v.quarantine_subject and subject:
+                    keys.append(f"subject:{subject}")
+                for key in keys:
                     try:
-                        self.quarantine.add(ctx.agent_run_id, f"{v.rule_id}: {v.detail}", now_dt)
+                        self.quarantine.add(key, f"{v.rule_id}: {v.detail}", now_dt)
                     except Exception:
                         self.quarantine_failures += 1
                         _log.exception(
-                            "quarantine journal write failed for agent_run_id %s (rule %s)",
-                            ctx.agent_run_id,
-                            v.rule_id,
+                            "quarantine journal write failed for %s (rule %s)", key, v.rule_id
                         )
         request: ApprovalRequest | None = None
         if decision is Decision.HITL_REQUIRED:
@@ -521,7 +578,7 @@ class Shield:
         f = evaluation.primary_finding()
         if f is None or f.decision is Decision.ALLOW:
             return
-        if f.rule_id == R_NEW_BENEFICIARY and f.decision is Decision.HITL_REQUIRED:
+        if f.decision is Decision.HITL_REQUIRED:
             exc_cls: type[ShieldError] = HITLRequiredError
         else:
             exc_cls = _EXCEPTION_FOR_RULE.get(f.rule_id, ShieldError)

@@ -21,6 +21,7 @@ from pydantic import (
 )
 
 from .exceptions import PolicyLoadError
+from .normalize import canonical_beneficiary
 
 _STRICT = ConfigDict(frozen=True, extra="forbid")
 
@@ -109,6 +110,11 @@ class VelocityPolicy(BaseModel):
 
     max_calls: int = Field(default=20, ge=1)
     window_seconds: float = Field(default=1.0, gt=0)
+    max_total_calls: int | None = Field(
+        default=None,
+        ge=1,
+        description="Calls across ALL tools per agent run in the window; stops tool rotation.",
+    )
 
 
 class HITLPolicy(BaseModel):
@@ -187,6 +193,18 @@ class StructuringPolicy(BaseModel):
     )
     window_seconds: float = Field(default=300.0, gt=0)
     min_tx_count: int = Field(default=2, ge=1)
+    scopes: frozenset[Literal["run", "subject", "beneficiary"]] = Field(
+        default=frozenset({"run"}),
+        description=(
+            "What payments are aggregated by: the agent run, the token subject (across runs), "
+            "and/or one payee (across runs; single-payee calls only)."
+        ),
+    )
+    max_keys: int = Field(
+        default=100_000,
+        ge=1,
+        description="Most distinct windows kept; beyond it the call fails closed.",
+    )
 
     @field_validator("thresholds", mode="before")
     @classmethod
@@ -201,6 +219,13 @@ class StructuringPolicy(BaseModel):
     def _valid_thresholds(cls, v: dict[str, Decimal]) -> dict[str, Decimal]:
         return _check_currency_map(v, "structuring.thresholds")
 
+    @field_validator("scopes")
+    @classmethod
+    def _need_a_scope(cls, v: frozenset[str]) -> frozenset[str]:
+        if not v:
+            raise ValueError("structuring.scopes must name at least one scope")
+        return v
+
 
 class NewBeneficiaryPolicy(BaseModel):
     """Stage 3: high-value disbursement to an unseen/untrusted beneficiary."""
@@ -214,6 +239,12 @@ class NewBeneficiaryPolicy(BaseModel):
     )
     known_beneficiaries: frozenset[NonEmptyStr] = frozenset()
     action: Literal["hitl_required", "block"] = "hitl_required"
+
+    @field_validator("known_beneficiaries")
+    @classmethod
+    def _canonical_known(cls, v: frozenset[str]) -> frozenset[str]:
+        """Store payees in canonical form so they compare equal to canonical call payees."""
+        return frozenset(c for c in (canonical_beneficiary(b) for b in v) if c)
 
     @field_validator("thresholds", mode="before")
     @classmethod
@@ -239,6 +270,92 @@ class SequencePolicy(BaseModel):
     payment_tools: frozenset[NonEmptyStr] = frozenset()
     min_recon_calls: int = Field(default=3, ge=1)
     window_seconds: float = Field(default=30.0, gt=0)
+
+
+class AggregationPolicy(BaseModel):
+    """Optional cross-currency aggregation using operator-supplied static rates.
+
+    With ``base_currency`` set, structuring and cumulative caps add up payments in every currency
+    after converting them to the base, so splitting a payout across currencies no longer evades
+    them. The rates are approximations the operator must review; a currency with no rate cannot be
+    converted and fails closed (it is judged in its own currency, which has no threshold).
+    """
+
+    model_config = _STRICT
+
+    base_currency: CurrencyCode | None = None
+    rates: dict[CurrencyCode, Decimal] = Field(
+        default_factory=dict, description="Units of base currency per one unit of the currency."
+    )
+
+    @field_validator("rates", mode="before")
+    @classmethod
+    def _no_float_rates(cls, v: Any) -> Any:
+        if isinstance(v, dict):
+            for item in v.values():
+                _reject_float(item)
+        return v
+
+    @model_validator(mode="after")
+    def _valid_rates(self) -> AggregationPolicy:
+        for code, rate in self.rates.items():
+            if not rate.is_finite() or rate <= 0:
+                raise ValueError(f"aggregation.rates[{code}] must be a finite, positive rate")
+        if self.base_currency is None and self.rates:
+            raise ValueError("aggregation.rates needs aggregation.base_currency")
+        if self.base_currency in self.rates:
+            raise ValueError("the base currency must not have a rate (it is always 1)")
+        return self
+
+    def to_base(self, amount: Decimal, currency: str | None) -> tuple[Decimal, str] | None:
+        """Return ``(amount in base, base)``, or None if aggregation is off or cannot convert."""
+        if self.base_currency is None or currency is None:
+            return None
+        if currency == self.base_currency:
+            return amount, currency
+        rate = self.rates.get(currency)
+        if rate is None:
+            return None
+        try:
+            return amount * rate, self.base_currency
+        except ArithmeticError:
+            return None
+
+
+class CumulativeCapPolicy(BaseModel):
+    """Stage 2: slow drain. A rolling cap on what one run, and one subject, may move."""
+
+    model_config = _STRICT
+
+    enabled: bool = False
+    protected_tools: frozenset[NonEmptyStr] = frozenset()
+    window_seconds: float = Field(default=86_400.0, gt=0)
+    per_run: dict[CurrencyCode, Decimal] = Field(default_factory=dict)
+    per_subject: dict[CurrencyCode, Decimal] = Field(default_factory=dict)
+    action: Literal["hitl_required", "block"] = "hitl_required"
+    max_keys: int = Field(default=100_000, ge=1)
+
+    @field_validator("per_run", "per_subject", mode="before")
+    @classmethod
+    def _no_floats(cls, v: Any) -> Any:
+        if isinstance(v, dict):
+            for item in v.values():
+                _reject_float(item)
+        return v
+
+    @field_validator("per_run", "per_subject")
+    @classmethod
+    def _valid_caps(cls, v: dict[str, Decimal]) -> dict[str, Decimal]:
+        for code, amount in v.items():
+            if not amount.is_finite() or amount < 0:
+                raise ValueError(f"cap[{code}] must be a finite, non-negative amount")
+        return v
+
+    @model_validator(mode="after")
+    def _enabled_needs_a_cap(self) -> CumulativeCapPolicy:
+        if self.enabled and not (self.per_run or self.per_subject):
+            raise ValueError("cumulative_cap is enabled but defines no per_run or per_subject cap")
+        return self
 
 
 class ToolBinding(BaseModel):
@@ -374,6 +491,8 @@ class PolicyConfig(BaseModel):
     sequence: SequencePolicy = Field(default_factory=SequencePolicy)
     tool_bindings: ToolBindingsPolicy = Field(default_factory=ToolBindingsPolicy)
     approval: ApprovalPolicy = Field(default_factory=ApprovalPolicy)
+    aggregation: AggregationPolicy = Field(default_factory=AggregationPolicy)
+    cumulative_cap: CumulativeCapPolicy = Field(default_factory=CumulativeCapPolicy)
     quarantine_on_block: bool = True
     audit_path: Path = Path("audit_trail.jsonl")
     audit_fsync: bool = False
@@ -397,6 +516,20 @@ class PolicyConfig(BaseModel):
                     f"tool_bindings.require_for_protected is set but these protected tools have "
                     f"no binding: {', '.join(missing)}"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _aggregation_has_base_limits(self) -> PolicyConfig:
+        base = self.aggregation.base_currency
+        if base is None:
+            return self
+        if self.structuring.enabled and base not in self.structuring.thresholds:
+            raise ValueError(f"aggregation is on but structuring.thresholds has no {base}")
+        cap = self.cumulative_cap
+        if cap.enabled:
+            for label, caps in (("per_run", cap.per_run), ("per_subject", cap.per_subject)):
+                if caps and base not in caps:
+                    raise ValueError(f"aggregation is on but cumulative_cap.{label} has no {base}")
         return self
 
     @classmethod

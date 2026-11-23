@@ -277,6 +277,66 @@ def _bench_decision_core(
         shield.close()
 
 
+def _bench_decision_core_protected(
+    tmp_dir: Path,
+    priv_key: Ed25519PrivateKey,
+    pub_key: Ed25519PublicKey,
+    iterations: int,
+    warmup: int,
+) -> LatencyStats:
+    """Decision core on a PROTECTED tool, so every window and gate of the preset is exercised.
+
+    ``settle_merchant`` runs the HITL gate, new-beneficiary gate, structuring (run, subject and
+    payee scopes, cross-currency conversion), the cumulative caps, velocity (per tool and total),
+    micro-probe and sequence detectors. Run, subject and payee rotate every 500 calls so the
+    benign traffic never trips a window however many iterations are requested.
+    """
+    clock = BenchClock()
+    shield = _create_shield(tmp_dir, pub_key, clock, "protected")
+    issuer = AgentTokenIssuer(priv_key)
+    tool = "settle_merchant"
+
+    def make_ctx(batch: int) -> ToolCallContext:
+        run_id = f"bench-protected-{batch}"
+        token = issuer.mint(
+            subject=f"bench-agent-{batch}",
+            agent_run_id=run_id,
+            env=Env.PROD,
+            allowed_tools=(tool,),
+            ttl_seconds=3600,
+            now=clock.now(),
+        )
+        return ToolCallContext(
+            agent_run_id=run_id,
+            tool_name=tool,
+            target_env=Env.PROD,
+            token=token,
+            amount=Decimal("6.00"),
+            currency="USD",
+            beneficiary=f"bench-payee-{batch}",
+        )
+
+    try:
+        samples: list[float] = []
+        ctx = make_ctx(0)
+        for idx in range(warmup + iterations):
+            if idx > 0 and idx % 500 == 0:
+                ctx = make_ctx(idx // 500)
+            clock.advance(0.1)
+            t0 = time.perf_counter()
+            ev = shield.evaluate(ctx)
+            elapsed_ms = (time.perf_counter() - t0) * 1000.0
+            if ev.decision != Decision.ALLOW:
+                raise RuntimeError(f"Expected ALLOW in decision_core_protected, got {ev.decision}")
+            if idx >= warmup:
+                samples.append(elapsed_ms)
+        return compute_stats(
+            "decision_core_protected", samples, iterations=iterations, warmup=warmup
+        )
+    finally:
+        shield.close()
+
+
 def _bench_in_process_guarded(
     tmp_dir: Path,
     priv_key: Ed25519PrivateKey,
@@ -640,6 +700,9 @@ def run_suite(*, iterations: int = 1000, warmup: int = 100) -> dict[str, Any]:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp)
         core_stats = _bench_decision_core(tmp_dir, priv_pem, pub_pem, iterations, warmup)
+        protected_stats = _bench_decision_core_protected(
+            tmp_dir, priv_pem, pub_pem, iterations, warmup
+        )
         guarded_stats = _bench_in_process_guarded(tmp_dir, priv_pem, pub_pem, iterations, warmup)
         raw_noop_stats, gateway_stats = asyncio.run(
             _bench_gateway_async(tmp_dir, priv_pem, pub_pem, iterations, warmup)
@@ -654,6 +717,7 @@ def run_suite(*, iterations: int = 1000, warmup: int = 100) -> dict[str, Any]:
 
     all_stats = [
         core_stats,
+        protected_stats,
         guarded_stats,
         raw_noop_stats,
         gateway_stats,
@@ -669,6 +733,7 @@ def run_suite(*, iterations: int = 1000, warmup: int = 100) -> dict[str, Any]:
 
     in_process_targets = [
         core_stats,
+        protected_stats,
         guarded_stats,
         bedrock_stats,
         azure_stats,

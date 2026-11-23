@@ -55,6 +55,9 @@ tampering attempt being detected.
 | 2. Structuring (split payments) | Cumulative amount over 300 s on protected tools above the per-currency threshold, 2+ payments | `R2.structuring` |
 | 2. Recon then payout | 3+ recon calls (`list_merchants`, `get_account`, ...) within 30 s followed by a payment tool | `R2.recon_to_payment_sequence` |
 | 3. New beneficiary | Payee outside `known_beneficiaries` above USD 1,000 (INR 90,000, MYR 4,500, SGD 1,350) needs step-up or is blocked | `R3.new_beneficiary_high_value` |
+| 2. Run rotation, payee fan-out | Structuring also adds up per token subject and per payee across runs; a subject hit contains every run of that subject | `R2.structuring` |
+| 2. Slow drain | Rolling 24 h cap per run and per subject; over the cap needs step-up (or is blocked) | `R2.cumulative_cap` |
+| 2. Tool rotation | All-tools velocity per run (default preset: 40 calls/s) | `R2.velocity_burst` |
 | 4. Low-monitoring windows | Weekends, holidays, outside 09:00-18:00 IST: probe/velocity limits and HITL thresholds are halved, and HITL is mandatory on protected tools | `R4.off_hours_hitl_required` |
 | CIAD-2026-0049 identity | Ed25519 token bound to one `agent_run_id`, 15-minute default TTL, 1-hour policy cap | `R1.token_invalid` |
 | CIAD-2026-0049 logs | SHA-256 hash-chained JSONL, offline verifier, rotation that keeps the chain | |
@@ -153,6 +156,30 @@ A bound tool is judged by its bound fields only. A path that is missing, null or
 unresolved, which fails closed on protected tools; negative amounts in a bulk call are refused.
 The gateway and all adapters read `shield.policy.tool_bindings`; hand-built `ToolCallContext`
 objects (the decorator path) are unaffected.
+
+### Aggregation, caps and payee normalisation
+
+```yaml
+structuring:
+  scopes: [run, subject, beneficiary]   # also add up per token subject and per payee, across runs
+velocity:
+  max_total_calls: 40                   # per run across ALL tools
+aggregation:                            # static, operator-reviewed rates (USD per 1 unit)
+  base_currency: USD
+  rates: {INR: "0.0111", MYR: "0.2222", SGD: "0.7407"}
+cumulative_cap:
+  enabled: true
+  window_seconds: 86400
+  per_run: {USD: "50000", INR: "4500000"}
+  per_subject: {USD: "200000", INR: "18000000"}
+  action: hitl_required                 # or block (quarantines the run and the subject)
+```
+
+A payment over a cap needs a per-transaction approval; a refused or pending payment is not
+counted, an approved one is. Payee ids are canonicalised before any comparison (`A@Bank` and
+`a@bank` are one UPI address; IBANs ignore spaces and case; other ids keep their case), and
+`known_beneficiaries` is stored the same way. Window state is per process, so run one shield per
+subject's traffic or supply shared backends; see the threat model.
 
 ### Per-transaction approvals
 

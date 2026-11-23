@@ -10,6 +10,7 @@ from pathlib import Path
 
 EXPECTED_BENCHMARKS = {
     "decision_core",
+    "decision_core_protected",
     "in_process_guarded",
     "raw_async_noop",
     "mcp_gateway_loopback",

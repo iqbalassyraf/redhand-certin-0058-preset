@@ -534,11 +534,12 @@ def test_mode_parity_enforce_vs_observe_only(
     # Sequence parity
     for _ in range(3):
         clock.advance(1.0)
-        rc = make_ctx(run="run-p2", tool="list_merchants")
+        # A different subject: structuring above (run-p1) now contains its whole subject.
+        rc = make_ctx(run="run-p2", subject="svc-p2", tool="list_merchants")
         sh_enf.evaluate(rc)
         sh_obs.evaluate(rc)
     clock.advance(1.0)
-    pc = make_ctx(run="run-p2", tool="settle_merchant", amount="100")
+    pc = make_ctx(run="run-p2", subject="svc-p2", tool="settle_merchant", amount="100")
     seq_enf = sh_enf.evaluate(pc)
     seq_obs = sh_obs.evaluate(pc)
     assert [f.rule_id for f in seq_enf.findings] == [R_SEQUENCE]

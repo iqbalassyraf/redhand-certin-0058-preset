@@ -18,6 +18,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from .models import ToolBinding, ToolBindingsPolicy
+from .normalize import canonical_beneficiary
 
 _Selector = str | int | None  # None: plain key, "*": every list element, int: one element
 
@@ -131,7 +132,7 @@ def _bound_money(arguments: dict[str, Any], binding: ToolBinding) -> MoneyFields
 
     if binding.beneficiary is not None:
         values, complete = resolve_path(arguments, binding.beneficiary, binding.max_items)
-        names = tuple(dict.fromkeys(str(v).strip() for v in values))
+        names = tuple(dict.fromkeys(canonical_beneficiary(str(v)) for v in values))
         if complete and names and "" not in names:
             beneficiary, beneficiaries = names[0], names
         else:
@@ -169,8 +170,7 @@ def _conventional_money(
     )
     beneficiary: str | None = None
     if raw_beneficiary is not None:
-        stripped = str(raw_beneficiary).strip()
-        beneficiary = stripped if stripped else None
+        beneficiary = canonical_beneficiary(str(raw_beneficiary)) or None
     return MoneyFields(amount, currency, beneficiary)
 
 

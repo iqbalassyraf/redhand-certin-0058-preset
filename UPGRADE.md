@@ -27,11 +27,13 @@ extensibility protocols (`protocols.py`), out-of-process MCP Gateway (`MCPGatewa
 multi-cloud and framework adapters (`BedrockConverseAdapter`, `AzureOpenAIAdapter`,
 `RedHandSemanticKernelFilter`, `GoogleGenAIAdapter`, `RedHandGuardedTool`, `GenericToolRunner`),
 production multi-stage `Dockerfile`, automated latency benchmark suite (`benchmarks/bench_latency.py`),
-a CLI, a terminal attack simulation, and 372 tests at 99% coverage. Phase 3 M1 added three
+a CLI, a terminal attack simulation, and 421 tests at 99% coverage. Phase 3 M1 added three
 deterministic detectors: split-transaction structuring, new-beneficiary high value, and the
 recon-to-payment sequence rule; M2 added per-tool argument bindings so those rules see the field
-each tool really pays from; M3 added signed, single-use, per-transaction approvals. With all rules
-on, the in-process p99 measured 0.33 ms in the benchmark harness (sandbox run). Measured via `benchmarks/bench_latency.py` before M1:
+each tool really pays from; M3 added signed, single-use, per-transaction approvals; M4 closed the detector
+bypasses (scopes across runs, caps, tool rotation, payee spelling, currency splitting). With every
+rule exercised on a protected tool (`decision_core_protected`), the in-process p99 measured about
+0.35 ms and p50 0.18 ms in the benchmark harness (sandbox run). Measured via `benchmarks/bench_latency.py` before M1:
 a full in-process guarded call has a p50 of 0.20 ms and p99 of 0.27 ms, and an out-of-process
 MCP Gateway `tools/call` roundtrip has a p50 of 0.37 ms and p99 of 0.54 ms.
 
@@ -116,12 +118,26 @@ New deterministic rules and stronger approval.
   - `hitl_step_up` still works while `approval.allow_legacy_step_up` is true, but each use is
     reported as a `legacy_run_wide_step_up` finding; a rejected approval never falls back to it.
     The flag will be removed before 1.0.
-- [ ] **M4: Harder aggregation.** Closes the ways the M1 detectors can be sidestepped.
-  - Structuring per beneficiary and per subject, across runs, not only per (run, currency).
-  - A rolling 24-hour cumulative cap per run and per subject.
-  - Velocity across all tools for a run, so rotating tools does not reset the count.
-  - A beneficiary normaliser (UPI VPA, IFSC plus account number, IBAN) so one payee cannot
-    appear as several.
+- [x] **M4: Harder aggregation.** Closes the ways the M1 detectors could be sidestepped.
+  - **Structuring scopes.** Payments are added up per run and, via `structuring.scopes`, per
+    token subject and per payee across runs, so a fresh run id or a second run does not start a
+    fresh window. A subject-scope hit quarantines the run and `subject:<sub>`, and the shield
+    refuses every later run of that subject. Window tables have a hard `max_keys` limit (the
+    payee key space is attacker controlled) and fail closed when full; purging a full table is
+    rate limited so it cannot become a CPU sink.
+  - **Cumulative caps.** A rolling 24 hour cap per run and per subject (`cumulative_cap`), with
+    `hitl_required` (default) or `block`. The cap is checked and recorded in one critical section
+    with step-up resolution, so concurrent calls cannot all slip under it, and a refused or
+    pending payment is never counted. An approved payment is counted.
+  - **All-tools velocity.** `velocity.max_total_calls` counts calls per run across every tool,
+    so rotating tools no longer keeps each per-tool count low.
+  - **Beneficiary normaliser.** UPI addresses, IBANs (mod-97 checked), IFSC plus account and
+    Unicode forms are canonicalised before any comparison, and `known_beneficiaries` is stored in
+    the same form. Generic ids keep their case, because merging case-distinct ids could make an
+    unknown payee look known.
+  - **Cross-currency aggregation.** Optional `aggregation` with static, operator-reviewed rates
+    adds payments up in a base currency, so splitting across currencies no longer evades
+    structuring or the caps. A currency with no rate fails closed.
 - [ ] **M5: Composable policies.** User rules layered on the preset without forking it.
   - An `extends:` overlay that can only tighten limits unless a field is explicitly marked
     loosenable.

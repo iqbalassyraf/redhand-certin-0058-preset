@@ -100,6 +100,7 @@ def make_ctx(issuer: AgentTokenIssuer, clock: FakeClock) -> Callable[..., ToolCa
     def _make(
         *,
         run: str = "run-1",
+        subject: str = "svc-agent",
         tool: str = "charge_card",
         env: Env = Env.PROD,
         token_env: Env | None = None,
@@ -111,7 +112,7 @@ def make_ctx(issuer: AgentTokenIssuer, clock: FakeClock) -> Callable[..., ToolCa
     ) -> ToolCallContext:
         if token is None:
             token = issuer.mint(
-                subject="svc-agent",
+                subject=subject,
                 agent_run_id=run,
                 env=token_env or env,
                 allowed_tools=allowed
