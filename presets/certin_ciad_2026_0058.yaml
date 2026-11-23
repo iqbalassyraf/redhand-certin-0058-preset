@@ -7,6 +7,16 @@
 preset_id: certin_ciad_2026_0058
 mode: enforce                     # enforce | observe_only (RedHand M4.3)
 
+# --- Overlays ---------------------------------------------------------------------------------
+# An operator policy can `extends: certin_ciad_2026_0058` instead of copying this file. An overlay
+# may only TIGHTEN this policy; loosening a limit needs an explicit `loosen: [field.path, ...]`
+# entry, and the fields below can never be loosened. See README "Composable policies".
+locked:
+  - quarantine_on_block
+  - tool_bindings.require_for_protected
+  - hitl.protected_tools
+  - off_hours.enabled
+
 # --- Identity (CIAD-2026-0049: separate, short-lived, least-privilege identity per agent run) ---
 issuer: redhand
 max_token_ttl_seconds: 3600       # tokens with exp - iat above this are rejected

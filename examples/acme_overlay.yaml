@@ -1,0 +1,46 @@
+# Example operator overlay: adjusts the CERT-In preset WITHOUT forking it.
+#   redhand-shield show-policy examples/acme_overlay.yaml       # merged policy + provenance
+#   redhand-shield gateway --policy examples/acme_overlay.yaml
+#
+# An overlay may only TIGHTEN its base. Anything that loosens must be listed under `loosen:`;
+# fields the base `locked:` can never be loosened.
+extends: certin_ciad_2026_0058
+
+# ---- Tightening: needs nothing special -------------------------------------------------------
+hitl:
+  thresholds:
+    USD: "7500"                       # lower than the preset's 10,000
+structuring:
+  protected_tools+: [pay_vendor]      # `key+:` appends to the base list instead of replacing it
+tool_bindings:
+  tools:
+    pay_vendor: {amount: value, currency: ccy, beneficiary: payee.vpa}
+
+# ---- Loosening: every one is named here, recorded in the policy provenance --------------------
+loosen:
+  - "cumulative_cap.per_subject.USD"
+  - "rules[*].mode"
+  - "exemptions[onboarding-batch-q4]"
+
+cumulative_cap:
+  per_subject:
+    USD: "250000"                     # our subject volume is higher than the preset's 200,000
+
+# Run a rule in shadow while tuning it: it reports what it would have done and never blocks.
+rules:
+  CIAD-2026-0058.R2.recon_to_payment_sequence:
+    mode: observe_only
+
+# A named, approved, time-limited waiver of a HUMAN STEP-UP requirement. It can never waive a
+# block, must match on at least one of tools/subjects/beneficiaries/envs, and every use is written
+# to the audit log.
+exemptions:
+  - id: onboarding-batch-q4
+    rules: [CIAD-2026-0058.R3.new_beneficiary_high_value]
+    reason: "Q4 vendor onboarding batch, risk ticket RISK-123"
+    approved_by: risk-officer@example.com
+    starts_at: 2026-11-01T00:00:00Z
+    expires_at: 2026-12-15T00:00:00Z
+    match:
+      tools: [settle_merchant]
+      subjects: [svc-vendor-batch]

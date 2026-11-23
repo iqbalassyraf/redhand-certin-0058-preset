@@ -36,25 +36,60 @@ from .models import (
 )
 from .normalize import canonical_beneficiary
 
-_log = logging.getLogger(__name__)
+# Rule identifiers live in rules.py; re-exported here for existing imports.
+from .rules import (
+    R_APPROVAL_ACCEPTED as R_APPROVAL_ACCEPTED,
+)
+from .rules import (
+    R_APPROVAL_REJECTED as R_APPROVAL_REJECTED,
+)
+from .rules import (
+    R_CUMULATIVE_CAP as R_CUMULATIVE_CAP,
+)
+from .rules import (
+    R_ENV_PIVOT as R_ENV_PIVOT,
+)
+from .rules import (
+    R_EXEMPTION_APPLIED as R_EXEMPTION_APPLIED,
+)
+from .rules import (
+    R_HITL as R_HITL,
+)
+from .rules import (
+    R_LEGACY_STEP_UP as R_LEGACY_STEP_UP,
+)
+from .rules import (
+    R_MICRO_TX as R_MICRO_TX,
+)
+from .rules import (
+    R_NEW_BENEFICIARY as R_NEW_BENEFICIARY,
+)
+from .rules import (
+    R_OFF_HOURS as R_OFF_HOURS,
+)
+from .rules import (
+    R_OFF_HOURS_HITL as R_OFF_HOURS_HITL,
+)
+from .rules import (
+    R_QUARANTINED as R_QUARANTINED,
+)
+from .rules import (
+    R_SEQUENCE as R_SEQUENCE,
+)
+from .rules import (
+    R_STRUCTURING as R_STRUCTURING,
+)
+from .rules import (
+    R_TOKEN_INVALID as R_TOKEN_INVALID,
+)
+from .rules import (
+    R_TOOL_NOT_PINNED as R_TOOL_NOT_PINNED,
+)
+from .rules import (
+    R_VELOCITY as R_VELOCITY,
+)
 
-# Stable rule identifiers, namespaced by advisory and kill-chain stage.
-R_QUARANTINED = "CIAD-2026-0058.R0.agent_quarantined"
-R_TOKEN_INVALID = "CIAD-2026-0058.R1.token_invalid"  # noqa: S105 - rule id, not a credential
-R_ENV_PIVOT = "CIAD-2026-0058.R1.staging_to_prod_pivot"
-R_MICRO_TX = "CIAD-2026-0058.R2.micro_tx_probe"
-R_VELOCITY = "CIAD-2026-0058.R2.velocity_burst"
-R_STRUCTURING = "CIAD-2026-0058.R2.structuring"
-R_SEQUENCE = "CIAD-2026-0058.R2.recon_to_payment_sequence"
-R_TOOL_NOT_PINNED = "CIAD-2026-0058.R3.tool_not_pinned"
-R_HITL = "CIAD-2026-0058.R3.hitl_required"
-R_NEW_BENEFICIARY = "CIAD-2026-0058.R3.new_beneficiary_high_value"
-R_OFF_HOURS_HITL = "CIAD-2026-0058.R4.off_hours_hitl_required"
-R_OFF_HOURS = "CIAD-2026-0058.R4.off_hours_tightened"
-R_CUMULATIVE_CAP = "CIAD-2026-0058.R2.cumulative_cap"
-R_APPROVAL_ACCEPTED = "CIAD-2026-0058.R3.approval_accepted"
-R_APPROVAL_REJECTED = "CIAD-2026-0058.R3.approval_rejected"
-R_LEGACY_STEP_UP = "CIAD-2026-0058.R3.legacy_run_wide_step_up"
+_log = logging.getLogger(__name__)
 
 Severity = str  # "low" | "medium" | "high" | "critical"
 
@@ -71,6 +106,8 @@ class Violation:
     quarantine: bool = False
     # Also contain every run of the token subject (a subject-scope aggregation tripped).
     quarantine_subject: bool = False
+    # Reported but never actuated: the rule runs in shadow (observe-only) mode via policy.rules.
+    shadow: bool = False
 
 
 # --------------------------------------------------------------------------------------

@@ -21,7 +21,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, Literal, TypeVar, cast
 
@@ -39,6 +39,7 @@ from .detectors import (
     R_APPROVAL_REJECTED,
     R_CUMULATIVE_CAP,
     R_ENV_PIVOT,
+    R_EXEMPTION_APPLIED,
     R_HITL,
     R_LEGACY_STEP_UP,
     R_MICRO_TX,
@@ -82,12 +83,14 @@ from .models import (
     ApprovalRequest,
     AuditRecord,
     Decision,
+    Exemption,
     M42Finding,
     Mode,
     PolicyConfig,
     TokenClaims,
     ToolCallContext,
 )
+from .normalize import canonical_beneficiary
 from .protocols import (
     AuditLogBackend,
     Clock,
@@ -129,12 +132,14 @@ class Evaluation:
     def primary_finding(self) -> M42Finding | None:
         """Return the highest-severity non-ALLOW finding (BLOCK > HITL_REQUIRED)."""
         first_non_allow: M42Finding | None = None
-        for f in self.findings:
+        # A shadow (observe-only) rule's finding is never the one that raises.
+        pool = [f for f in self.findings if f.enforced] or self.findings
+        for f in pool:
             if f.decision is Decision.BLOCK:
                 return f
             if f.decision is not Decision.ALLOW and first_non_allow is None:
                 first_non_allow = f
-        return first_non_allow or (self.findings[0] if self.findings else None)
+        return first_non_allow or (pool[0] if pool else None)
 
 
 class Shield:
@@ -187,6 +192,9 @@ class Shield:
             max_entries=policy.approval.max_nonces,
             clock=self._clock,
         )
+        for ex in policy.exemptions:
+            if ex.expires_at <= self._clock():
+                _log.warning("exemption %r expired at %s and is ignored", ex.id, ex.expires_at)
         self._off_hours = OffHoursEvaluator(policy)
         self._micro = MicroTxProbeDetector(policy.micro_tx)
         self._velocity = VelocityDetector(policy.velocity)
@@ -319,6 +327,60 @@ class Shield:
             return "approval already used or the nonce store is full", ""
         return None, f"request {approval.request_id} approved by {approval.sub!r}"
 
+    def _adjust(
+        self,
+        ctx: ToolCallContext,
+        claims: TokenClaims,
+        violations: list[Violation],
+        now_dt: datetime,
+        applied: dict[str, tuple[Exemption, set[str]]],
+    ) -> list[Violation]:
+        """Apply policy.rules (disable, shadow, re-label), then the active exemptions.
+
+        An exemption waives only a ``hitl_required`` violation of a step-up rule; a block is
+        never waived, and a shadowed violation needs no waiver because it never actuates.
+        """
+        rules = self.policy.rules
+        if not rules and not self.policy.exemptions:
+            return violations
+        kept: list[Violation] = []
+        for v in violations:
+            if (override := rules.get(v.rule_id)) is not None:
+                if not override.enabled:
+                    continue
+                if override.severity is not None:
+                    v = replace(v, severity=override.severity)
+                if override.mode is Mode.OBSERVE_ONLY:
+                    v = replace(v, shadow=True)
+            if v.decision is Decision.HITL_REQUIRED and not v.shadow:
+                exemption = self._exemption_for(ctx, claims, v.rule_id, now_dt)
+                if exemption is not None:
+                    applied.setdefault(exemption.id, (exemption, set()))[1].add(v.rule_id)
+                    continue
+            kept.append(v)
+        return kept
+
+    def _exemption_for(
+        self, ctx: ToolCallContext, claims: TokenClaims, rule_id: str, now_dt: datetime
+    ) -> Exemption | None:
+        for ex in self.policy.exemptions:
+            if rule_id not in ex.rules or not (ex.starts_at <= now_dt < ex.expires_at):
+                continue
+            m = ex.match
+            if m.tools and ctx.tool_name not in m.tools:
+                continue
+            if m.subjects and claims.sub not in m.subjects:
+                continue
+            if m.envs and ctx.target_env not in m.envs:
+                continue
+            if m.beneficiaries:
+                payees = {canonical_beneficiary(p) for p in payees_of(ctx)} - {""}
+                # Every payee of the call must be covered: one extra payee voids the exemption.
+                if not payees or not payees <= m.beneficiaries:
+                    continue
+            return ex
+        return None
+
     # ------------------------------------------------------------------------------
     # Decision core
     # ------------------------------------------------------------------------------
@@ -427,6 +489,10 @@ class Shield:
             )
             if new_ben is not None:
                 gate_violations.append(new_ben)
+            # Rule overrides (shadow, disabled, re-labelled) and exemptions apply before step-up
+            # is resolved, so a shadowed or exempt gate never holds the call pending.
+            applied: dict[str, tuple[Exemption, set[str]]] = {}
+            gate_violations = self._adjust(ctx, claims, gate_violations, now_dt, applied)
 
             # One critical section covers the cap check, step-up resolution, every window and the
             # cap record, so concurrent calls cannot both slip under a cap, and a call that is
@@ -434,7 +500,7 @@ class Shield:
             # happens for calls that carry one.
             approval_notes: list[Violation] = []
             with self._state_lock:
-                cap_violation = self._cap.check(
+                cap_raw = self._cap.check(
                     ctx.agent_run_id,
                     ctx.tool_name,
                     ctx.amount,
@@ -443,18 +509,28 @@ class Shield:
                     effective,
                     subject=claims.sub,
                 )
-                if cap_violation is not None:
-                    gate_violations.append(cap_violation)
+                cap_violation: Violation | None = None
+                if cap_raw is not None:
+                    kept = self._adjust(ctx, claims, [cap_raw], now_dt, applied)
+                    if kept:
+                        cap_violation = kept[0]
+                        gate_violations.append(cap_violation)
 
-                pending = [v for v in gate_violations if v.decision is Decision.HITL_REQUIRED]
+                pending = [
+                    v
+                    for v in gate_violations
+                    if v.decision is Decision.HITL_REQUIRED and not v.shadow
+                ]
                 if pending:
                     cleared, approval_notes = self._resolve_step_up(ctx, claims, pending)
                     if cleared:
                         gate_violations = [
-                            v for v in gate_violations if v.decision is not Decision.HITL_REQUIRED
+                            v
+                            for v in gate_violations
+                            if v.shadow or v.decision is not Decision.HITL_REQUIRED
                         ]
                 has_hitl_rejection = any(
-                    v.decision is Decision.HITL_REQUIRED for v in gate_violations
+                    v.decision is Decision.HITL_REQUIRED and not v.shadow for v in gate_violations
                 )
 
                 probe = self._micro.observe(
@@ -477,9 +553,14 @@ class Shield:
                     )
                 )
                 sequence = self._sequence.observe(ctx.agent_run_id, ctx.tool_name, now)
-                if not has_hitl_rejection and (
-                    cap_violation is None or cap_violation not in gate_violations
-                ):
+                # A shadowed, exempt or approved cap violation does not stop the payment, so it
+                # is counted; a refused or pending one is not.
+                cap_blocking = (
+                    cap_violation is not None
+                    and not cap_violation.shadow
+                    and cap_violation in gate_violations
+                )
+                if not has_hitl_rejection and not cap_blocking:
                     self._cap.record(
                         ctx.agent_run_id,
                         ctx.tool_name,
@@ -488,9 +569,22 @@ class Shield:
                         now,
                         subject=claims.sub,
                     )
-            violations.extend(v for v in (probe, burst, structuring, sequence) if v is not None)
+            detected = [v for v in (probe, burst, structuring, sequence) if v is not None]
+            violations.extend(self._adjust(ctx, claims, detected, now_dt, applied))
             violations.extend(gate_violations)
             violations.extend(approval_notes)
+            for ex, rules in applied.values():
+                violations.append(
+                    Violation(
+                        R_EXEMPTION_APPLIED,
+                        "low",
+                        3,
+                        Decision.ALLOW,
+                        f"exemption {ex.id!r} waived {', '.join(sorted(rules))} "
+                        f"(approved by {ex.approved_by!r}, expires {ex.expires_at.isoformat()}): "
+                        f"{ex.reason}",
+                    )
+                )
 
         return self._finish(
             ctx, violations, now_dt, t0, subject=claims.sub if claims is not None else None
@@ -506,6 +600,8 @@ class Shield:
     ) -> Evaluation:
         decision = Decision.ALLOW
         for v in violations:
+            if v.shadow:
+                continue
             if v.decision is Decision.BLOCK:
                 decision = Decision.BLOCK
                 break
@@ -513,7 +609,7 @@ class Shield:
                 decision = Decision.HITL_REQUIRED
 
         enforced = self.policy.mode is Mode.ENFORCE
-        findings = [self._to_finding(ctx, v, now_dt, enforced) for v in violations]
+        findings = [self._to_finding(ctx, v, now_dt, enforced and not v.shadow) for v in violations]
         for f in findings:
             try:
                 self.telemetry_sink.emit(f.model_copy())
@@ -524,7 +620,7 @@ class Shield:
         # Containment is recorded in BOTH modes (observe mode never consults it to block).
         if self.policy.quarantine_on_block:
             for v in violations:
-                if not v.quarantine:
+                if not v.quarantine or v.shadow:
                     continue
                 keys = [ctx.agent_run_id]
                 if v.quarantine_subject and subject:
@@ -542,7 +638,9 @@ class Shield:
             pending = [
                 v
                 for v in violations
-                if v.decision is Decision.HITL_REQUIRED and v.rule_id != R_APPROVAL_REJECTED
+                if v.decision is Decision.HITL_REQUIRED
+                and not v.shadow
+                and v.rule_id != R_APPROVAL_REJECTED
             ]
             request = build_request(
                 ctx,

@@ -2,26 +2,25 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-import yaml
 from pydantic import (
+    AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
     StringConstraints,
-    ValidationError,
     field_validator,
     model_validator,
 )
 
-from .exceptions import PolicyLoadError
 from .normalize import canonical_beneficiary
+from .rules import EXEMPTIBLE_RULES, OVERRIDABLE_RULES
 
 _STRICT = ConfigDict(frozen=True, extra="forbid")
 
@@ -472,6 +471,98 @@ class ApprovalClaims(BaseModel):
     exp: int
 
 
+SeverityLabel = Literal["low", "medium", "high", "critical"]
+
+
+class RuleOverride(BaseModel):
+    """Per-rule operator control: run a rule in shadow, switch it off, or re-label it.
+
+    Shadow (``mode: observe_only``) keeps the detector running and reports what it would have done
+    (``enforced=False``), but the rule never blocks, quarantines, or asks for an approval. Only
+    detector rules can be overridden; identity, pinning, quarantine and approval rules cannot.
+    """
+
+    model_config = _STRICT
+
+    enabled: bool = True
+    mode: Mode = Mode.ENFORCE
+    severity: SeverityLabel | None = None
+
+
+class ExemptionMatch(BaseModel):
+    """Which calls an exemption covers. Every given constraint must hold."""
+
+    model_config = _STRICT
+
+    tools: frozenset[NonEmptyStr] = frozenset()
+    subjects: frozenset[NonEmptyStr] = frozenset()
+    beneficiaries: frozenset[NonEmptyStr] = Field(
+        default=frozenset(),
+        description="Canonical payee ids; every payee of the call must be listed.",
+    )
+    envs: frozenset[Env] = frozenset()
+
+    @field_validator("beneficiaries")
+    @classmethod
+    def _canonical_payees(cls, v: frozenset[str]) -> frozenset[str]:
+        return frozenset(c for c in (canonical_beneficiary(b) for b in v) if c)
+
+    @model_validator(mode="after")
+    def _not_blanket(self) -> ExemptionMatch:
+        if not (self.tools or self.subjects or self.beneficiaries or self.envs):
+            raise ValueError(
+                "an exemption must match on at least one of tools/subjects/"
+                "beneficiaries/envs (no blanket exemptions)"
+            )
+        return self
+
+
+class Exemption(BaseModel):
+    """A time-limited, named, audited waiver of a human step-up requirement."""
+
+    model_config = _STRICT
+
+    id: NonEmptyStr
+    rules: frozenset[NonEmptyStr] = Field(min_length=1)
+    reason: Annotated[str, StringConstraints(min_length=10, strip_whitespace=True)]
+    approved_by: NonEmptyStr
+    starts_at: AwareDatetime
+    expires_at: AwareDatetime
+    match: ExemptionMatch
+
+    @field_validator("rules")
+    @classmethod
+    def _only_step_up_rules(cls, v: frozenset[str]) -> frozenset[str]:
+        bad = sorted(v - EXEMPTIBLE_RULES)
+        if bad:
+            raise ValueError(
+                f"exemptions can only waive step-up rules; not waivable: {', '.join(bad)}"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def _ordered(self) -> Exemption:
+        if self.expires_at <= self.starts_at:
+            raise ValueError(f"exemption {self.id!r}: expires_at must be after starts_at")
+        return self
+
+
+class PolicyProvenance(BaseModel):
+    """Where a policy came from. Set only by the loader, never read from a policy file."""
+
+    model_config = _STRICT
+
+    chain: tuple[str, ...] = Field(
+        default=(), description="Sources from the root policy to the overlay, with SHA-256."
+    )
+    loosened: tuple[str, ...] = Field(
+        default=(), description="Base limits the overlay deliberately loosened (its loosen: list)."
+    )
+    locked: tuple[str, ...] = Field(
+        default=(), description="Field paths no overlay may loosen, declared by the base."
+    )
+
+
 class PolicyConfig(BaseModel):
     """Declarative policy; loaded from ``presets/certin_ciad_2026_0058.yaml``."""
 
@@ -493,6 +584,10 @@ class PolicyConfig(BaseModel):
     approval: ApprovalPolicy = Field(default_factory=ApprovalPolicy)
     aggregation: AggregationPolicy = Field(default_factory=AggregationPolicy)
     cumulative_cap: CumulativeCapPolicy = Field(default_factory=CumulativeCapPolicy)
+    rules: dict[NonEmptyStr, RuleOverride] = Field(default_factory=dict)
+    exemptions: tuple[Exemption, ...] = ()
+    exemption_max_days: int = Field(default=90, ge=1, le=365)
+    provenance: PolicyProvenance | None = None
     quarantine_on_block: bool = True
     audit_path: Path = Path("audit_trail.jsonl")
     audit_fsync: bool = False
@@ -519,6 +614,26 @@ class PolicyConfig(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def _rules_and_exemptions(self) -> PolicyConfig:
+        unknown = sorted(set(self.rules) - OVERRIDABLE_RULES)
+        if unknown:
+            raise ValueError(
+                f"rules can only override detector rules; not overridable: {', '.join(unknown)}"
+            )
+        seen: set[str] = set()
+        limit = timedelta(days=self.exemption_max_days)
+        for ex in self.exemptions:
+            if ex.id in seen:
+                raise ValueError(f"duplicate exemption id {ex.id!r}")
+            seen.add(ex.id)
+            if ex.expires_at - ex.starts_at > limit:
+                raise ValueError(
+                    f"exemption {ex.id!r} lasts longer than exemption_max_days "
+                    f"({self.exemption_max_days})"
+                )
+        return self
+
+    @model_validator(mode="after")
     def _aggregation_has_base_limits(self) -> PolicyConfig:
         base = self.aggregation.base_currency
         if base is None:
@@ -534,18 +649,10 @@ class PolicyConfig(BaseModel):
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> PolicyConfig:
-        """Load and validate a policy file. Unknown keys are rejected (fail closed)."""
-        p = Path(path)
-        try:
-            raw = yaml.safe_load(p.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError) as exc:
-            raise PolicyLoadError(f"cannot read policy {p}: {exc}") from exc
-        if not isinstance(raw, dict):
-            raise PolicyLoadError(f"policy {p} must be a YAML mapping")
-        try:
-            return cls.model_validate(raw)
-        except ValidationError as exc:
-            raise PolicyLoadError(f"invalid policy {p}:\n{exc}") from exc
+        """Load and validate a policy file, resolving ``extends``. Unknown keys are rejected."""
+        from .layers import load_policy_file  # lazy: layers imports this module
+
+        return load_policy_file(Path(path))
 
 
 class ToolCallContext(BaseModel):

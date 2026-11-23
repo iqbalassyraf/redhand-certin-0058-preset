@@ -201,9 +201,11 @@ def _create_shield(
     pub_key: Ed25519PublicKey,
     clock: BenchClock,
     suffix: str,
+    updates: dict[str, Any] | None = None,
 ) -> Shield:
     policy = load_policy().model_copy(
         update={
+            **(updates or {}),
             "mode": Mode.ENFORCE,
             "audit_path": tmp_dir / f"audit_{suffix}.jsonl",
             "audit_fsync": False,
@@ -333,6 +335,89 @@ def _bench_decision_core_protected(
         return compute_stats(
             "decision_core_protected", samples, iterations=iterations, warmup=warmup
         )
+    finally:
+        shield.close()
+
+
+def _bench_decision_core_layered(
+    tmp_dir: Path,
+    priv_key: Ed25519PrivateKey,
+    pub_key: Ed25519PublicKey,
+    iterations: int,
+    warmup: int,
+) -> LatencyStats:
+    """Decision core with a layered policy: rule overrides and an active exemption in play.
+
+    Each call is a 1,500 USD payment to a payee the policy does not know, so the new-beneficiary
+    step-up fires and the exemption waives it; a shadowed rule and a severity override are also
+    configured, so the per-violation adjustment path is measured, not skipped.
+    """
+    from datetime import timedelta
+
+    from redhand_fintech_shield.models import Exemption, ExemptionMatch, RuleOverride
+    from redhand_fintech_shield.rules import R_NEW_BENEFICIARY, R_SEQUENCE, R_VELOCITY
+
+    clock = BenchClock()
+    tool = "settle_merchant"
+    exemption = Exemption(
+        id="bench-exemption",
+        rules=frozenset({R_NEW_BENEFICIARY}),
+        reason="Benchmark exemption for the layered-policy measurement",
+        approved_by="bench",
+        starts_at=clock.now() - timedelta(days=1),
+        expires_at=clock.now() + timedelta(days=30),
+        match=ExemptionMatch(tools=frozenset({tool})),
+    )
+    shield = _create_shield(
+        tmp_dir,
+        pub_key,
+        clock,
+        "layered",
+        {
+            "exemptions": (exemption,),
+            "rules": {
+                R_SEQUENCE: RuleOverride(mode=Mode.OBSERVE_ONLY),
+                R_VELOCITY: RuleOverride(severity="critical"),
+            },
+        },
+    )
+    issuer = AgentTokenIssuer(priv_key)
+
+    def make_ctx(batch: int) -> ToolCallContext:
+        run_id = f"bench-layered-{batch}"
+        token = issuer.mint(
+            subject=f"bench-agent-{batch}",
+            agent_run_id=run_id,
+            env=Env.PROD,
+            allowed_tools=(tool,),
+            ttl_seconds=3600,
+            now=clock.now(),
+        )
+        return ToolCallContext(
+            agent_run_id=run_id,
+            tool_name=tool,
+            target_env=Env.PROD,
+            token=token,
+            amount=Decimal("1500.00"),
+            currency="USD",
+            beneficiary=f"bench-payee-{batch}",
+        )
+
+    try:
+        samples: list[float] = []
+        ctx = make_ctx(0)
+        for idx in range(warmup + iterations):
+            if idx > 0 and idx % 5 == 0:  # 5 x 1,500 stays under every threshold per run/subject
+                ctx = make_ctx(idx // 5)
+            clock.advance(0.1)
+            t0 = time.perf_counter()
+            ev = shield.evaluate(ctx)
+            elapsed_ms = (time.perf_counter() - t0) * 1000.0
+            if ev.decision != Decision.ALLOW:
+                raise RuntimeError(f"Expected ALLOW in decision_core_layered, got {ev.decision}")
+            if idx >= warmup:
+                samples.append(elapsed_ms)
+        return compute_stats("decision_core_layered", samples, iterations=iterations, warmup=warmup)
     finally:
         shield.close()
 
@@ -703,6 +788,7 @@ def run_suite(*, iterations: int = 1000, warmup: int = 100) -> dict[str, Any]:
         protected_stats = _bench_decision_core_protected(
             tmp_dir, priv_pem, pub_pem, iterations, warmup
         )
+        layered_stats = _bench_decision_core_layered(tmp_dir, priv_pem, pub_pem, iterations, warmup)
         guarded_stats = _bench_in_process_guarded(tmp_dir, priv_pem, pub_pem, iterations, warmup)
         raw_noop_stats, gateway_stats = asyncio.run(
             _bench_gateway_async(tmp_dir, priv_pem, pub_pem, iterations, warmup)
@@ -718,6 +804,7 @@ def run_suite(*, iterations: int = 1000, warmup: int = 100) -> dict[str, Any]:
     all_stats = [
         core_stats,
         protected_stats,
+        layered_stats,
         guarded_stats,
         raw_noop_stats,
         gateway_stats,
@@ -734,6 +821,7 @@ def run_suite(*, iterations: int = 1000, warmup: int = 100) -> dict[str, Any]:
     in_process_targets = [
         core_stats,
         protected_stats,
+        layered_stats,
         guarded_stats,
         bedrock_stats,
         azure_stats,

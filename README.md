@@ -157,6 +157,40 @@ unresolved, which fails closed on protected tools; negative amounts in a bulk ca
 The gateway and all adapters read `shield.policy.tool_bindings`; hand-built `ToolCallContext`
 objects (the decorator path) are unaffected.
 
+### Composable policies
+
+Do not copy the preset. Extend it:
+
+```yaml
+extends: certin_ciad_2026_0058        # a bundled preset id, or a path to another policy file
+hitl:
+  thresholds: {USD: "7500"}           # tightening needs nothing special
+structuring:
+  protected_tools+: [pay_vendor]      # `key+:` appends to the base list
+loosen:                               # loosening must be named, and is recorded
+  - "cumulative_cap.per_subject.USD"
+cumulative_cap:
+  per_subject: {USD: "250000"}
+rules:                                # shadow a rule while tuning it
+  CIAD-2026-0058.R2.recon_to_payment_sequence: {mode: observe_only}
+```
+
+An overlay may only **tighten** its base. A change that loosens a limit (a higher threshold, a
+removed protected tool, a new currency, a rule switched to shadow or off) is refused unless that
+exact field is listed under `loosen:`, and a field the base lists under `locked:` can never be
+loosened. A `loosen:` entry that loosens nothing is also an error. The loaded policy records its
+provenance (chain with SHA-256, accepted loosenings, locks), and `redhand-shield show-policy
+overlay.yaml` prints it. See [examples/acme_overlay.yaml](examples/acme_overlay.yaml).
+
+* **Shadow rules.** `rules: {<rule id>: {mode: observe_only}}` keeps a detector running and reports
+  what it would have done (`enforced: false`), but it never blocks, quarantines or asks for an
+  approval. `enabled: false` switches it off and `severity` re-labels it. Only detector rules can
+  be overridden; token, pinning, quarantine and approval rules cannot.
+* **Exemptions.** A named, approved, time-limited waiver of a *human step-up requirement*
+  (high-value gate, new beneficiary, cumulative cap), matched on tools, subjects, payees or
+  environments. It never waives a block, is capped by `exemption_max_days` (90), and every use is
+  a finding in the audit log. Adding one in an overlay counts as loosening.
+
 ### Aggregation, caps and payee normalisation
 
 ```yaml

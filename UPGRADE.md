@@ -19,7 +19,7 @@ benchmark harness so anyone can reproduce them.
   are expected to live in separate packages built on tagged releases of this one.
 - **No platform code in the core.** The core exposes interfaces. Platform adapters live elsewhere.
 
-## Where we are (Phases 1 and 2 complete, Phase 3 in progress)
+## Where we are (Phases 1 to 3 complete)
 
 In-process decorator, Ed25519 per-run tokens, sliding-window detectors, HITL gate, off-hours
 tightening, journaled quarantine, hash-chained audit log with rotation and an offline verifier,
@@ -27,13 +27,15 @@ extensibility protocols (`protocols.py`), out-of-process MCP Gateway (`MCPGatewa
 multi-cloud and framework adapters (`BedrockConverseAdapter`, `AzureOpenAIAdapter`,
 `RedHandSemanticKernelFilter`, `GoogleGenAIAdapter`, `RedHandGuardedTool`, `GenericToolRunner`),
 production multi-stage `Dockerfile`, automated latency benchmark suite (`benchmarks/bench_latency.py`),
-a CLI, a terminal attack simulation, and 421 tests at 99% coverage. Phase 3 M1 added three
+a CLI, a terminal attack simulation, and 510 tests at 99% coverage. Phase 3 M1 added three
 deterministic detectors: split-transaction structuring, new-beneficiary high value, and the
 recon-to-payment sequence rule; M2 added per-tool argument bindings so those rules see the field
 each tool really pays from; M3 added signed, single-use, per-transaction approvals; M4 closed the detector
-bypasses (scopes across runs, caps, tool rotation, payee spelling, currency splitting). With every
-rule exercised on a protected tool (`decision_core_protected`), the in-process p99 measured about
-0.35 ms and p50 0.18 ms in the benchmark harness (sandbox run). Measured via `benchmarks/bench_latency.py` before M1:
+bypasses (scopes across runs, caps, tool rotation, payee spelling, currency splitting); M5 added
+overlays, shadow rules and exemptions. With every
+rule exercised on a protected tool (`decision_core_protected`) the in-process p99 measured about
+0.35 ms (p50 0.18 ms), and with a layered policy (shadow rule, severity override and an active
+exemption, `decision_core_layered`) about 0.6 ms, in the benchmark harness (sandbox run). Measured via `benchmarks/bench_latency.py` before M1:
 a full in-process guarded call has a p50 of 0.20 ms and p99 of 0.27 ms, and an out-of-process
 MCP Gateway `tools/call` roundtrip has a p50 of 0.37 ms and p99 of 0.54 ms.
 
@@ -138,18 +140,30 @@ New deterministic rules and stronger approval.
   - **Cross-currency aggregation.** Optional `aggregation` with static, operator-reviewed rates
     adds payments up in a base currency, so splitting across currencies no longer evades
     structuring or the caps. A currency with no rate fails closed.
-- [ ] **M5: Composable policies.** User rules layered on the preset without forking it.
-  - An `extends:` overlay that can only tighten limits unless a field is explicitly marked
-    loosenable.
-  - Per-rule `enabled`, `mode` and `severity` overrides, so a new rule can run in shadow while
-    the others enforce.
-  - Exemptions that carry an expiry and are written to the audit log.
-
+- [x] **M5: Composable policies.** User rules layered on the preset without forking it.
+  - **`extends:` overlays.** A policy file extends a bundled preset id or another file (depth
+    at most 4, cycles refused). The overlay is deep-merged (`key+:` appends to a list), validated,
+    then compared with its parent field by field: it may only **tighten**. A field the direction
+    table does not know defaults to "must not change", and a test keeps the table complete.
+  - **Explicit loosening.** Anything an overlay loosens must be named under `loosen:` (`*`
+    wildcard); a stale entry that loosens nothing is an error. A base can `locked:` fields that
+    can never be loosened (the preset locks its core floors). `PolicyConfig.provenance` records
+    the chain with SHA-256s, every accepted loosening and the locks; `show-policy` prints it.
+  - **Per-rule overrides.** `rules:` runs a detector rule in shadow (`observe_only`: reported
+    with `enforced=false`, never blocks, quarantines or asks for approval), disables it, or
+    re-labels its severity. Identity, pinning, quarantine and approval rules cannot be overridden.
+  - **Exemptions.** A named, approved, time-limited waiver of a human step-up requirement, with
+    a mandatory match on tools/subjects/payees/environments and a duration cap. It waives only a
+    `hitl_required` violation of a step-up rule, never a block, and every use is a finding in the
+    audit log. In an overlay, an exemption is a loosening and must be listed.
 **Done when:** each rule has positive and negative tests and a documented rationale; a replayed
 or reused approval signature is rejected; a payment through a differently named argument or a
 bulk list is still judged; the structuring and velocity bypasses above each have a failing test
 that now passes; the in-process p99 stays under 2 ms with all rules enabled, re-measured with
 `benchmarks/bench_latency.py`.
+**Status: Complete** (M1 to M5). Positive and negative tests exist for every rule and every
+bypass named above; a replayed or reused approval is rejected (`tests/test_approvals.py`); the
+in-process p99 stays under 2 ms with all rules and a layered policy enabled.
 
 ## Phase 3.5: Integration contract
 
