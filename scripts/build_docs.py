@@ -57,6 +57,7 @@ PAGES: tuple[Page, ...] = (
         "Integrating with a host application",
     ),
     Page("detection-results", "Detection results", "docs/detection-results.md"),
+    Page("announcement", "Announcement", "docs/announcement.md"),
 )
 
 # ---------------------------------------------------------------------------------------------
