@@ -68,7 +68,7 @@ The full list is in the threat model.
 - Preset policy fingerprint `3ba9dd3cfa1e7cc2`; the corpus runs under an overlay with
   fingerprint `b87b27c40c5cea99`.
 - Replay corpus `1.0.0`, sha256 `fc58fd58a39af163`.
-- 74 public names, snapshotted so a change is a visible diff.
+- 76 public names, snapshotted so a change is a visible diff.
 
 ## Reproduce every number
 

@@ -8,7 +8,7 @@ from . import adapters
 from .approvals import ApprovalIssuer, ApprovalVerifier, NonceRegistry
 from .audit import AuditLog, ChainVerificationReport, HashChainedAuditLog
 from .context import extract_tool_call_context
-from .crypto import AgentTokenIssuer, AgentTokenVerifier, KeyRing, TokenKey
+from .crypto import AgentTokenIssuer, AgentTokenVerifier, HostVerifiedOnly, KeyRing, TokenKey
 from .detectors import QuarantineRegistry, QuarantineTracker
 from .exceptions import (
     AgentQuarantinedError,
@@ -61,6 +61,7 @@ from .protocols import (
     QuarantineBackend,
     RevocationStore,
     TelemetrySink,
+    TokenVerifier,
     ToolExecutor,
     WindowStore,
     WindowStoreFull,
@@ -118,6 +119,7 @@ __all__ = [
     "ExemptionMatch",
     "HITLRequiredError",
     "HashChainedAuditLog",
+    "HostVerifiedOnly",
     "InMemoryWindowStore",
     "KeyRing",
     "M42Finding",
@@ -151,6 +153,7 @@ __all__ = [
     "TokenKey",
     "TokenKeyConfig",
     "TokenPivotError",
+    "TokenVerifier",
     "ToolBinding",
     "ToolBindingsPolicy",
     "ToolCallContext",

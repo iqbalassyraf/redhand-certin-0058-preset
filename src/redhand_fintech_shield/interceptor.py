@@ -103,6 +103,7 @@ from .protocols import (
     QuarantineBackend,
     RevocationStore,
     TelemetrySink,
+    TokenVerifier,
     WindowStore,
 )
 from .revocations import RevocationRegistry
@@ -155,7 +156,7 @@ class Shield:
     def __init__(
         self,
         policy: PolicyConfig,
-        verifier: AgentTokenVerifier | None = None,
+        verifier: TokenVerifier | None = None,
         *,
         audit: AuditLogBackend | None = None,
         audit_log: AuditLogBackend | None = None,
@@ -186,7 +187,7 @@ class Shield:
         else:
             self._monotonic = monotonic
 
-        self._verifier = verifier or self._verifier_from_policy(policy, self._clock)
+        self._verifier: TokenVerifier = verifier or self._verifier_from_policy(policy, self._clock)
         self.audit: Any = (
             audit or audit_log or HashChainedAuditLog(policy.audit_path, fsync=policy.audit_fsync)
         )
@@ -439,6 +440,22 @@ class Shield:
 
     def evaluate(self, ctx: ToolCallContext) -> Evaluation:
         """Judge one call. Pure with respect to the tool; mutates only detector state."""
+        return self._evaluate(ctx, None)
+
+    def evaluate_verified(self, ctx: ToolCallContext, claims: TokenClaims) -> Evaluation:
+        """Judge one call whose caller the HOST has already authenticated.
+
+        For a host, such as an API gateway, that verifies its own agent credential and should not
+        mint a second token. ``claims`` stand in for a verified run token: the shield trusts them
+        as given, so this must only be called after the host's own authentication passed. Every
+        other check is unchanged: ``claims.agent_run_id`` must match ``ctx.agent_run_id``,
+        revocations and quarantine apply, the environment and tool pins are judged, and claims
+        whose ``exp`` is in the past are refused. ``ctx.token`` is never verified on this path; the
+        audit log stores only its hash, so pass a non-secret reference, not the credential.
+        """
+        return self._evaluate(ctx, claims)
+
+    def _evaluate(self, ctx: ToolCallContext, verified: TokenClaims | None) -> Evaluation:
         t0 = time.perf_counter_ns()
         now_dt = self._clock()
         now = self._monotonic()
@@ -463,7 +480,12 @@ class Shield:
         # [2] Env / token claim pinning. Verification is CPU-bound and runs outside the lock.
         claims: TokenClaims | None = None
         try:
-            claims = self._verifier.verify(ctx.token)
+            if verified is None:
+                claims = self._verifier.verify(ctx.token)
+            elif verified.exp <= int(now_dt.timestamp()):
+                raise TokenInvalidError("host-verified claims have expired")
+            else:
+                claims = verified
             if claims.agent_run_id != ctx.agent_run_id:
                 claims = None
                 raise TokenInvalidError("token is bound to a different agent run")

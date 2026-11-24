@@ -20,7 +20,7 @@ from pydantic import (
 )
 
 from .normalize import canonical_beneficiary
-from .rules import EXEMPTIBLE_RULES, OVERRIDABLE_RULES
+from .rules import EXEMPTIBLE_RULES, OVERRIDABLE_RULES, RULE_CATALOG
 
 _STRICT = ConfigDict(frozen=True, extra="forbid")
 
@@ -780,6 +780,16 @@ class M42Finding(BaseModel):
         pattern=r"^[0-9a-f]{64}$",
         description="Fingerprint of the policy that produced this finding.",
     )
+
+    def redacted(self) -> M42Finding:
+        """A copy whose ``detail`` is the rule's fixed catalog summary, with no call data in it.
+
+        ``detail`` explains a decision with the call's own values (amounts, payee ids, subjects),
+        which a host may not be allowed to store or show. The summary is a fixed sentence per rule,
+        so a redacted finding can go to logs, dashboards and telemetry. Every other field is kept.
+        """
+        summary = next((r.summary for r in RULE_CATALOG if r.id == self.rule_id), None)
+        return self.model_copy(update={"detail": summary or "A policy rule fired."})
 
 
 class TokenClaims(BaseModel):

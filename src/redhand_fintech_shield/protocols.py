@@ -11,7 +11,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from .models import AuditRecord, M42Finding
+from .models import AuditRecord, M42Finding, TokenClaims
 
 
 @runtime_checkable
@@ -116,6 +116,19 @@ class NonceStore(Protocol):
         could no longer verify. A store that cannot record the nonce must raise or return False:
         an approval is honoured only when this returns True.
         """
+        ...  # pragma: no cover
+
+
+@runtime_checkable
+class TokenVerifier(Protocol):
+    """Protocol for turning an agent token into verified claims, or raising ``TokenInvalidError``.
+
+    ``AgentTokenVerifier`` (Ed25519 JWTs) and ``HostVerifiedOnly`` (for embedded hosts) both
+    satisfy it.
+    """
+
+    def verify(self, token: str) -> TokenClaims:
+        """Return the verified claims of ``token``; raise ``TokenInvalidError`` otherwise."""
         ...  # pragma: no cover
 
 

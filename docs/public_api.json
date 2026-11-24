@@ -294,6 +294,13 @@
       "verify_chain": "(paths:str | Path | Sequence[str | Path], expected_tail_hash:str | None=None|kw)"
     }
   },
+  "HostVerifiedOnly": {
+    "init": "()",
+    "kind": "class",
+    "methods": {
+      "verify": "(self:, token:str)"
+    }
+  },
   "InMemoryWindowStore": {
     "init": "(max_keys:Mapping[str, int] | None=None|kw, sweep_every:int=256|kw, sweep_batch:int=256|kw)",
     "kind": "class",
@@ -627,12 +634,13 @@
     "kind": "exception"
   },
   "Shield": {
-    "init": "(policy:PolicyConfig, verifier:AgentTokenVerifier | None=None, audit:AuditLogBackend | None=None|kw, audit_log:AuditLogBackend | None=None|kw, quarantine:QuarantineBackend | None=None|kw, quarantine_tracker:QuarantineBackend | None=None|kw, telemetry_sink:TelemetrySink | None=None|kw, approval_verifier:ApprovalVerifier | None=None|kw, nonce_store:NonceStore | None=None|kw, revocations:RevocationStore | None=None|kw, window_store:WindowStore | None=None|kw, clock:Clock | Callable[[], datetime]=<redhand_fintech_shield.crypto.utcnow>|kw, monotonic:MonotonicClock | Callable[[], float]=<time.monotonic>|kw)",
+    "init": "(policy:PolicyConfig, verifier:TokenVerifier | None=None, audit:AuditLogBackend | None=None|kw, audit_log:AuditLogBackend | None=None|kw, quarantine:QuarantineBackend | None=None|kw, quarantine_tracker:QuarantineBackend | None=None|kw, telemetry_sink:TelemetrySink | None=None|kw, approval_verifier:ApprovalVerifier | None=None|kw, nonce_store:NonceStore | None=None|kw, revocations:RevocationStore | None=None|kw, window_store:WindowStore | None=None|kw, clock:Clock | Callable[[], datetime]=<redhand_fintech_shield.crypto.utcnow>|kw, monotonic:MonotonicClock | Callable[[], float]=<time.monotonic>|kw)",
     "kind": "class",
     "methods": {
       "audit_log": "property",
       "close": "(self:)",
       "evaluate": "(self:, ctx:ToolCallContext)",
+      "evaluate_verified": "(self:, ctx:ToolCallContext, claims:TokenClaims)",
       "guard": "(self:, fn:F, ctx_arg:str='ctx'|kw)",
       "quarantine_tracker": "property"
     }
@@ -712,6 +720,12 @@
   "TokenPivotError": {
     "init": "(message:str, finding:M42Finding | None=None)",
     "kind": "exception"
+  },
+  "TokenVerifier": {
+    "kind": "protocol",
+    "methods": {
+      "verify": "(self:, token:str)"
+    }
   },
   "ToolBinding": {
     "fields": {

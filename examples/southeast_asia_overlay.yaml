@@ -1,0 +1,19 @@
+# Example: running the preset for an organization outside India (here, Malaysia).
+#
+# The preset's off-hours rule (R4) uses Indian business hours and Indian public holidays. A host
+# serving another country replaces both with the organization's own, and shadows the off-hours
+# approval gate until the organization has entered its holidays. Each change loosens the base, so
+# each is named under `loosen:` and recorded in the policy's provenance.
+#
+# `holidays: []` is deliberate: this file does not guess a country's holiday calendar. Enter the
+# organization's real dates (as "YYYY-MM-DD" strings) before taking the R4 gate out of shadow.
+extends: certin_ciad_2026_0058
+loosen:
+  - "off_hours.timezone"
+  - "off_hours.holidays"
+  - "rules[CIAD-2026-0058.R4.off_hours_hitl_required].mode"
+off_hours:
+  timezone: Asia/Kuala_Lumpur
+  holidays: []
+rules:
+  CIAD-2026-0058.R4.off_hours_hitl_required: {mode: observe_only}

@@ -151,6 +151,22 @@ class AgentTokenIssuer:
         return jwt.encode(payload, self._key, algorithm=_ALG, headers=headers)
 
 
+class HostVerifiedOnly:
+    """Token verifier for a shield embedded in a host that authenticates agents itself.
+
+    It refuses every token, so ``Shield.evaluate`` (the token path) always fails closed, and the
+    host must use ``Shield.evaluate_verified`` with the identity it verified. It holds no key, so
+    the shield's approver-key separation check has nothing to compare.
+    """
+
+    key_fingerprints: frozenset[str] = frozenset()
+
+    def verify(self, token: str) -> TokenClaims:
+        raise TokenInvalidError(
+            "this shield accepts host-verified claims only (use Shield.evaluate_verified)"
+        )
+
+
 class AgentTokenVerifier:
     """Verifies tokens. Expiry uses an injectable clock so tests never sleep."""
 

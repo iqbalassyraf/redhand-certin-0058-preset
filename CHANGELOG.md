@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Embedding in a host that authenticates agents itself (Phase 6 S0, for the RedHand gateway): `Shield.evaluate_verified(ctx, claims)` judges a call with identity the host already verified, so the host does not mint a second token. It still checks that the claims belong to the run and have not expired, and still applies revocations, quarantine, environment and tool pins and every detector. `HostVerifiedOnly`, a verifier that refuses every token so the normal token path fails closed in such a shield, and the `TokenVerifier` protocol that both verifiers satisfy (`Shield(verifier=...)` now accepts any `TokenVerifier`).
+- `M42Finding.redacted()`: a copy whose `detail` is the rule's fixed catalog summary, so a finding can be logged or shown without amounts, payee ids or subjects.
+- `examples/southeast_asia_overlay.yaml`: running the preset for an organization outside India (Malaysian timezone, the Indian holidays removed, the off-hours approval gate shadowed until real holidays are entered), each change named under `loosen:` and recorded in provenance.
+
 ## [0.2.0] - 2026-11-23
 
 ### Added

@@ -330,6 +330,18 @@ Everything a host application needs to consume the preset is machine-readable an
   `redhand_fintech_shield.__all__` with its signature; a test fails on any difference. Breaking
   changes and deprecations follow the policy in [CONTRIBUTING.md](https://github.com/iqbalassyraf/redhand-certin-0058-preset/blob/main/CONTRIBUTING.md).
 
+### Embedding in a host gateway
+
+A host that already authenticates its agents (an API or MCP gateway with its own tokens) should not
+mint a second token. Build the shield with `HostVerifiedOnly()`, which refuses every token so the
+normal path fails closed, and call `shield.evaluate_verified(ctx, claims)` only after the host's
+own authentication has passed, with `TokenClaims` built from the identity it verified. The shield
+still checks that the claims belong to the run and have not expired, and still applies
+revocations, quarantine, pins and every detector. Put a non-secret reference in `ctx.token`, never
+the credential. Use `finding.redacted()` before a finding leaves the process, so no amount or payee
+id is logged. For organizations outside India, start from
+[examples/southeast_asia_overlay.yaml](https://github.com/iqbalassyraf/redhand-certin-0058-preset/blob/main/examples/southeast_asia_overlay.yaml).
+
 ## MCP Gateway & Docker Quickstart
 
 Run the shield out-of-process as a stdio Model Context Protocol (MCP) gateway so the agent never
