@@ -42,6 +42,6 @@ body:
       value: |
         - OS: [e.g. Linux Debian 12 / macOS 14 / Windows 11]
         - Python version: [e.g. 3.11.2]
-        - redhand-certin-0058-preset version: [e.g. 0.2.0]
+        - redhand-certin-0058-preset version: [e.g. 0.3.0]
     validations:
       required: true

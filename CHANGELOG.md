@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-25
+
 ### Added
+- `NullAuditLog`, an audit sink that keeps nothing, for a host whose own ledger already records every decision (RedHand's Black Box). The `AuditLogBackend.append` protocol may now return `None` for a sink that keeps no chain; existing backends still conform. The replay harness uses it in place of its private copy.
+- `load_policy_from_mapping(overlay, label=..., base=...)`: builds a policy from an in-memory overlay on the bundled preset (or another base), for a host that keeps each organization's settings in its own database and has no policy files. It applies the file loader's rules exactly: tighten-only unless `loosen` names the field, `locked` fields never loosen, unknown keys and `extends` are refused, `provenance` in the input is ignored, and the same size and nesting limits hold. Equal overlays give equal fingerprints and provenance labels. A test also shows a shield runs with no files at all (host-verified identity, no-op audit sink, in-memory quarantine, read-only working directory).
 - Embedding in a host that authenticates agents itself (Phase 6 S0, for the RedHand gateway): `Shield.evaluate_verified(ctx, claims)` judges a call with identity the host already verified, so the host does not mint a second token. It still checks that the claims belong to the run and have not expired, and still applies revocations, quarantine, environment and tool pins and every detector. `HostVerifiedOnly`, a verifier that refuses every token so the normal token path fails closed in such a shield, and the `TokenVerifier` protocol that both verifiers satisfy (`Shield(verifier=...)` now accepts any `TokenVerifier`).
 - `M42Finding.redacted()`: a copy whose `detail` is the rule's fixed catalog summary, so a finding can be logged or shown without amounts, payee ids or subjects.
 - `examples/southeast_asia_overlay.yaml`: running the preset for an organization outside India (Malaysian timezone, the Indian holidays removed, the off-hours approval gate shadowed until real holidays are entered), each change named under `loosen:` and recorded in provenance.

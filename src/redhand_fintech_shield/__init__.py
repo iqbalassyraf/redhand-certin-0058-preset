@@ -30,6 +30,7 @@ from .exceptions import (
 from .fingerprint import policy_fingerprint
 from .gateway import MCPGateway, ToolDefinition
 from .interceptor import Evaluation, Shield, redhand_guard
+from .layers import load_policy_from_mapping
 from .manifest import PresetManifest, get_manifest
 from .models import (
     AggregationPolicy,
@@ -57,6 +58,7 @@ from .protocols import (
     Clock,
     MonotonicClock,
     NonceStore,
+    NullAuditLog,
     NullTelemetrySink,
     QuarantineBackend,
     RevocationStore,
@@ -70,7 +72,7 @@ from .revocations import RevocationRegistry
 from .rules import RULE_CATALOG, RuleInfo
 from .windowstore import InMemoryWindowStore
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 _PRESET_NAME = "certin_ciad_2026_0058.yaml"
 
@@ -131,6 +133,7 @@ __all__ = [
     "NewBeneficiaryError",
     "NonceRegistry",
     "NonceStore",
+    "NullAuditLog",
     "NullTelemetrySink",
     "PolicyConfig",
     "PolicyLoadError",
@@ -169,6 +172,7 @@ __all__ = [
     "extract_tool_call_context",
     "get_manifest",
     "load_policy",
+    "load_policy_from_mapping",
     "policy_fingerprint",
     "redhand_guard",
 ]

@@ -260,7 +260,7 @@ fuzzing is evidence for the inputs tried, not a proof: run it longer with
 - Documentation site with an architecture diagram and the threat model.
 - A recorded terminal demo.
 - A short comparison of execution-layer enforcement against prompt-based guardrails.
-- A `v0.2.0` release with the published benchmark numbers.
+- A `v0.2.0` (superseded by `v0.3.0`) release with the published benchmark numbers.
 
 **Done when:** a new user can go from `pip install` to a protected agent in two minutes using the
 docs alone, and every number in the announcement can be reproduced from the repository.
@@ -271,7 +271,7 @@ docs alone, and every number in the announcement can be reproduced from the repo
 (`scripts/record_demo.py`); `docs/comparison.md`; `scripts/release_numbers.py` with a generated
 `docs/announcement.md` (exact numbers are recomputed and checked, machine-dependent ones are
 recorded with their commands); and a `0.2.0` version, changelog entry and `RELEASING.md`.
-The `v0.2.0` tag is not pushed: tagging triggers the PyPI publish, so a person does it after
+The release tag (now `v0.3.0`) is not pushed by me: tagging triggers the PyPI publish, so a person does it after
 following `RELEASING.md`.
 
 ## Non-goals
@@ -283,5 +283,5 @@ infrastructure across hosts.
 ## Versioning
 
 Semantic versioning, staying on 0.x until the gateway and per-transaction approval stabilise.
-The first public release is `v0.2.0`, cut at the end of Phase 5; `0.1.0` was an internal
-milestone and was never tagged. Every release has a changelog entry.
+The first public release is `v0.3.0`, cut after Phase 6 S0; `0.1.0` and `0.2.0` were internal
+milestones and were never tagged. Every release has a changelog entry.

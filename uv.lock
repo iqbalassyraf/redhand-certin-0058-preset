@@ -1372,7 +1372,7 @@ wheels = [
 
 [[package]]
 name = "redhand-certin-0058-preset"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },

@@ -42,6 +42,7 @@ from .detectors import QuarantineRegistry
 from .exceptions import PolicyLoadError
 from .interceptor import Shield
 from .models import ApprovalRequest, Decision, Env, PolicyConfig
+from .protocols import NullAuditLog
 from .revocations import RevocationRegistry
 
 _STRICT = ConfigDict(frozen=True, extra="forbid")
@@ -209,16 +210,6 @@ class ScenarioResult:
     latencies_ms: tuple[float, ...] = field(default=(), compare=False)
 
 
-class _NullAudit:
-    tail_hash = "0" * 64
-
-    def append(self, body: dict[str, Any]) -> None:
-        return None
-
-    def close(self) -> None:
-        return None
-
-
 class _Clock:
     def __init__(self, start: datetime) -> None:
         self.start = start
@@ -265,7 +256,7 @@ class ReplayHarness:
         return Shield(
             self.policy,
             verifier,
-            audit=_NullAudit(),  # type: ignore[arg-type]
+            audit=NullAuditLog(),
             quarantine=QuarantineRegistry(None),
             revocations=RevocationRegistry(None, clock=clock.now),
             approval_verifier=ApprovalVerifier(

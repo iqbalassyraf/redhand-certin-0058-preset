@@ -1,6 +1,6 @@
 [project]
 name = "redhand-certin-0058-preset"
-version = "0.2.0"
+version = "0.3.0"
 description = "Deterministic runtime interceptor preset for RedHand and standalone toolkit defending against CERT-In CIAD-2026-0058 (CRAFTY FALCON) and CIAD-2026-0049."
 readme = "README.md"
 requires-python = ">=3.11"

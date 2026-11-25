@@ -362,7 +362,7 @@
     "kind": "model"
   },
   "MCPGateway": {
-    "init": "(shield:Shield, executor:ToolExecutor | dict[str, Callable[..., Any]] | None=None, tools:Sequence[ToolDefinition] | None=None, default_env:Env=<Env.PROD: 'prod'>|kw, server_name:str='redhand-fintech-shield-gateway'|kw, server_version:str='0.2.0'|kw, error_mode:Literal['mcp', 'jsonrpc']='mcp'|kw)",
+    "init": "(shield:Shield, executor:ToolExecutor | dict[str, Callable[..., Any]] | None=None, tools:Sequence[ToolDefinition] | None=None, default_env:Env=<Env.PROD: 'prod'>|kw, server_name:str='redhand-fintech-shield-gateway'|kw, server_version:str='0.3.0'|kw, error_mode:Literal['mcp', 'jsonrpc']='mcp'|kw)",
     "kind": "class",
     "methods": {
       "dispatch_request": "(self:, method:str, params:dict[str, Any], req_id:Any)",
@@ -408,6 +408,15 @@
     "kind": "protocol",
     "methods": {
       "consume": "(self:, nonce:str, expires_at:int)"
+    }
+  },
+  "NullAuditLog": {
+    "init": "()",
+    "kind": "class",
+    "methods": {
+      "append": "(self:, body:dict[str, Any])",
+      "close": "(self:)",
+      "tail_hash": "property"
     }
   },
   "NullTelemetrySink": {
@@ -868,6 +877,10 @@
   "load_policy": {
     "kind": "function",
     "signature": "(path:str | Path | None=None)"
+  },
+  "load_policy_from_mapping": {
+    "kind": "function",
+    "signature": "(overlay:Mapping[str, Any], label:str='in-memory overlay'|kw, base:Path | None=None|kw)"
   },
   "policy_fingerprint": {
     "kind": "function",

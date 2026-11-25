@@ -18,8 +18,8 @@ from .models import AuditRecord, M42Finding, TokenClaims
 class AuditLogBackend(Protocol):
     """Protocol for tamper-evident audit log storage backends."""
 
-    def append(self, body: dict[str, Any]) -> AuditRecord:
-        """Chain and record one audit entry. Returns the validated AuditRecord."""
+    def append(self, body: dict[str, Any]) -> AuditRecord | None:
+        """Chain and record one entry. Returns the validated AuditRecord (None: no chain kept)."""
         ...  # pragma: no cover
 
     def close(self) -> None:
@@ -176,6 +176,26 @@ class TelemetrySink(Protocol):
     def emit(self, finding: M42Finding) -> None:
         """Emit an M42Finding to telemetry/SIEM/metrics pipeline."""
         ...  # pragma: no cover
+
+
+class NullAuditLog:
+    """An audit sink that keeps nothing, for a host whose own ledger already records every decision.
+
+    The shield still hands every decision to ``append``; this discards it. It has no chain, so
+    ``tail_hash`` is the genesis value and ``verify-audit`` has nothing to check. Use it only when
+    another tamper-evident record exists (for example RedHand's Black Box), never to avoid auditing.
+    """
+
+    def append(self, body: dict[str, Any]) -> AuditRecord | None:
+        """Discard the entry."""
+        return None
+
+    def close(self) -> None:
+        """Nothing to close."""
+
+    @property
+    def tail_hash(self) -> str:
+        return "0" * 64
 
 
 class NullTelemetrySink:

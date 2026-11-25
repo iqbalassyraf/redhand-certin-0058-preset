@@ -28,15 +28,15 @@ python scripts/run_quickstart.py --python /tmp/rel-check/bin/python
 /tmp/rel-check/bin/redhand-shield schema --check</code></pre>
 <h2 id="tagging">Tagging</h2>
 <pre class="lang-bash"><code>git switch main &amp;&amp; git pull --ff-only
-git tag -s v0.2.0 -m &quot;v0.2.0&quot;      # or -a if you do not sign tags
-git push origin v0.2.0</code></pre>
+git tag -s v0.3.0 -m &quot;v0.3.0&quot;      # or -a if you do not sign tags
+git push origin v0.3.0</code></pre>
 <h2 id="after-tagging">After tagging</h2>
-<ol><li>Watch the <strong>Release</strong> workflow. It must finish all of: build, SBOM, attestations, upload, and PyPI publish.</li><li>Check PyPI shows the new version and that <code>pip install redhand-certin-0058-preset==0.2.0</code> works in a fresh environment.</li><li>Verify the provenance attestation for the downloaded wheel:</li></ol>
-<pre class="lang-bash"><code>gh attestation verify redhand_certin_0058_preset-0.2.0-py3-none-any.whl \
+<ol><li>Watch the <strong>Release</strong> workflow. It must finish all of: build, SBOM, attestations, upload, and PyPI publish.</li><li>Check PyPI shows the new version and that <code>pip install redhand-certin-0058-preset==0.3.0</code> works in a fresh environment.</li><li>Verify the provenance attestation for the downloaded wheel:</li></ol>
+<pre class="lang-bash"><code>gh attestation verify redhand_certin_0058_preset-0.3.0-py3-none-any.whl \
   --repo iqbalassyraf/redhand-certin-0058-preset</code></pre>
 <ol><li>Create the GitHub release from the tag, using the changelog entry and linking the announcement.</li><li>Start a new <code>## [Unreleased]</code> section in the changelog if one is not there.</li></ol>
 <h2 id="if-something-goes-wrong">If something goes wrong</h2>
-<ul><li>A failed workflow before the PyPI step: fix forward on <code>main</code>, delete the remote tag (<code>git push origin :refs/tags/v0.2.0</code>) and the local one, and tag again.</li><li>A bad release already on PyPI: yank it on PyPI, publish a fixed patch version, and say why in the changelog. Do not reuse the version number.</li></ul>
+<ul><li>A failed workflow before the PyPI step: fix forward on <code>main</code>, delete the remote tag (<code>git push origin :refs/tags/v0.3.0</code>) and the local one, and tag again.</li><li>A bad release already on PyPI: yank it on PyPI, publish a fixed patch version, and say why in the changelog. Do not reuse the version number.</li></ul>
 </main>
 <footer>Generated from the repository's Markdown by <code>scripts/build_docs.py</code>. Source: <a href="https://github.com/iqbalassyraf/redhand-certin-0058-preset">https://github.com/iqbalassyraf/redhand-certin-0058-preset</a></footer>
 </body>

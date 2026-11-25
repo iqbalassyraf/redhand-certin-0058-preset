@@ -45,20 +45,20 @@ python scripts/run_quickstart.py --python /tmp/rel-check/bin/python
 
 ```bash
 git switch main && git pull --ff-only
-git tag -s v0.2.0 -m "v0.2.0"      # or -a if you do not sign tags
-git push origin v0.2.0
+git tag -s v0.3.0 -m "v0.3.0"      # or -a if you do not sign tags
+git push origin v0.3.0
 ```
 
 ## After tagging
 
 1. Watch the **Release** workflow. It must finish all of: build, SBOM, attestations, upload, and
    PyPI publish.
-2. Check PyPI shows the new version and that `pip install redhand-certin-0058-preset==0.2.0` works
+2. Check PyPI shows the new version and that `pip install redhand-certin-0058-preset==0.3.0` works
    in a fresh environment.
 3. Verify the provenance attestation for the downloaded wheel:
 
 ```bash
-gh attestation verify redhand_certin_0058_preset-0.2.0-py3-none-any.whl \
+gh attestation verify redhand_certin_0058_preset-0.3.0-py3-none-any.whl \
   --repo iqbalassyraf/redhand-certin-0058-preset
 ```
 
@@ -68,6 +68,6 @@ gh attestation verify redhand_certin_0058_preset-0.2.0-py3-none-any.whl \
 ## If something goes wrong
 
 - A failed workflow before the PyPI step: fix forward on `main`, delete the remote tag
-  (`git push origin :refs/tags/v0.2.0`) and the local one, and tag again.
+  (`git push origin :refs/tags/v0.3.0`) and the local one, and tag again.
 - A bad release already on PyPI: yank it on PyPI, publish a fixed patch version, and say why in the
   changelog. Do not reuse the version number.

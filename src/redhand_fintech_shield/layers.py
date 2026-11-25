@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -467,3 +468,52 @@ def load_policy_file(path: Path) -> PolicyConfig:
         chain=resolved.chain, loosened=resolved.loosened, locked=resolved.locked
     )
     return resolved.config.model_copy(update={"provenance": provenance})
+
+
+def load_policy_from_mapping(
+    overlay: Mapping[str, Any], *, label: str = "in-memory overlay", base: Path | None = None
+) -> PolicyConfig:
+    """Build a policy from an in-memory overlay on a base policy (default: the bundled preset).
+
+    For a host that keeps each organization's settings in its own database and has no policy
+    files to write. It applies exactly the file loader's rules: the overlay may only tighten the
+    base unless a ``loosen`` entry names the field, a field the base ``locked`` can never be
+    loosened, unknown keys are refused, and the document is held to the same depth and size
+    limits. ``extends`` is not accepted here (the base is the argument), and ``provenance`` in the
+    overlay is ignored, as in a file. The returned policy records the chain, with a digest of the
+    overlay's canonical JSON, so two equal overlays carry the same label.
+    """
+    if not isinstance(overlay, Mapping):
+        raise PolicyLoadError(f"{label} must be a mapping")
+    try:
+        raw = copy.deepcopy(dict(overlay))
+        encoded = json.dumps(raw, sort_keys=True, default=str)
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise PolicyLoadError(f"{label} cannot be read: {exc}") from exc
+    if len(encoded.encode("utf-8")) > MAX_POLICY_BYTES:
+        raise PolicyLoadError(f"{label} is larger than {MAX_POLICY_BYTES} bytes")
+    _check_shape(raw, Path(label))
+    raw.pop("provenance", None)
+    if "extends" in raw:
+        raise PolicyLoadError(f"{label}: `extends` is not accepted; pass the base instead")
+    meta = {key: raw.pop(key) for key in META_KEYS if key in raw}
+    loosen = _string_list(meta.get("loosen"), "loosen", Path(label))
+    locked = _string_list(meta.get("locked"), "locked", Path(label))
+    if base is None:
+        from . import default_preset_path  # lazy: the package imports this module's parent
+
+        base = default_preset_path()
+    try:
+        parent = _resolve(Path(base), (), 0)
+        merged = _merge(copy.deepcopy(parent.raw), raw)
+        config = _validate(merged, Path(label))
+    except RecursionError as exc:
+        raise PolicyLoadError(f"{label} is nested too deeply to load") from exc
+    accepted = check_tightening(parent.config, config, loosen=loosen, locked=parent.locked)
+    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:12]
+    provenance = PolicyProvenance(
+        chain=(*parent.chain, f"{label}@sha256:{digest}"),
+        loosened=(*parent.loosened, *accepted),
+        locked=tuple(dict.fromkeys((*parent.locked, *locked))),
+    )
+    return config.model_copy(update={"provenance": provenance})
