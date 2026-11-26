@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- An amount given as text is read only if it is a plain ASCII number (`10`, `10.50`, `-3`, `1E3`). `Decimal` also accepts `1_000`, padded text and non-ASCII digits such as `١٢٣`, and the tool being protected may read the same text differently, so those are now refused (input rejected: refused in enforce) instead of guessed at, on both the bound and the conventional-name paths. Exception messages no longer contain the amount. Found by hostile-input testing of the RedHand gateway integration.
+
 ## [0.3.0] - 2026-11-25
 
 ### Added

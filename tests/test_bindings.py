@@ -460,3 +460,63 @@ def test_gateway_uses_policy_bindings(
     assert response is not None
     assert response["result"]["isError"] is True
     assert R_NEW_BENEFICIARY in str(response["result"])
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "1_000",
+        " 100",
+        "100 ",
+        "١٢٣",
+        "１００",  # noqa: RUF001 (fullwidth digits are the point of this case)
+        "1,000",
+        "0x10",
+        ".5",
+        "5.",
+        "1e",
+        "+",
+        "",
+        "1 000",
+        "１.５",  # noqa: RUF001 (fullwidth digits are the point)
+        "1\n",
+        "\t5",
+    ],
+)
+def test_an_amount_that_is_not_a_plain_ascii_number_is_refused_not_guessed(text: str) -> None:
+    """Decimal reads underscores, padding and non-ASCII digits; the protected tool may not."""
+    from redhand_fintech_shield.bindings import resolve_money_fields
+
+    policy = ToolBindingsPolicy(tools={"pay": ToolBinding(amount="amount", fixed_currency="USD")})
+    with pytest.raises(ValueError, match="plain ASCII number"):
+        resolve_money_fields("pay", {"amount": text}, {}, {}, policy)
+
+
+@pytest.mark.parametrize(
+    "text, value",
+    [
+        ("10", "10"),
+        ("10.50", "10.50"),
+        ("-0", "0"),
+        ("+7", "7"),
+        ("1E3", "1E+3"),
+        ("0.000001", "0.000001"),
+    ],
+)
+def test_plain_ascii_numbers_still_read(text: str, value: str) -> None:
+    from decimal import Decimal
+
+    from redhand_fintech_shield.bindings import resolve_money_fields
+
+    policy = ToolBindingsPolicy(tools={"pay": ToolBinding(amount="amount", fixed_currency="USD")})
+    assert resolve_money_fields("pay", {"amount": text}, {}, {}, policy).amount == Decimal(value)
+
+
+def test_the_refusal_message_never_contains_the_amount() -> None:
+    from redhand_fintech_shield.bindings import resolve_money_fields
+
+    policy = ToolBindingsPolicy(tools={"pay": ToolBinding(amount="amount", fixed_currency="USD")})
+    for secret in ("canary-4417x", "NaN", "Infinity", "-999999.99", "1e99999999999999999999"):
+        with pytest.raises(ValueError) as caught:
+            resolve_money_fields("pay", {"amount": secret}, {}, {}, policy)
+        assert secret not in str(caught.value) and "999999" not in str(caught.value)

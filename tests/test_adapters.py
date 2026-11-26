@@ -1965,7 +1965,7 @@ def test_adapters_float_amount_strictly_rejected(
 
 
 def test_adapters_invalid_decimal_string_rejected() -> None:
-    with pytest.raises(ValueError, match="invalid decimal amount"):
+    with pytest.raises(ValueError, match="amount is not a plain ASCII number"):
         extract_tool_call_context(
             "charge_card",
             {"amount": "not_a_number", "currency": "USD", "token": "tok"},

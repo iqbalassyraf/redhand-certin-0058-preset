@@ -836,7 +836,7 @@ BULK = ToolBindingsPolicy(
 
 def test_a_bulk_amount_is_always_the_exact_sum_of_its_items() -> None:
     rng = rng_for("bulk-sum")
-    spellings: list[Callable[[Decimal], Any]] = [str, lambda d: f" {d} ", lambda d: str(d).upper()]
+    spellings: list[Callable[[Decimal], Any]] = [str, lambda d: str(d).upper()]
     for case in range(ITERATIONS):
         rows, expected = _payments(rng, rng.randrange(1, 30), rng.choice(spellings))
         ctx = extract_tool_call_context("bulk", {"payments": rows, "token": "t"}, bindings=BULK)

@@ -13,6 +13,7 @@ detectors on protected tools.
 from __future__ import annotations
 
 import functools
+import re
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -84,6 +85,9 @@ def resolve_path(root: Any, path: str, max_items: int) -> tuple[list[Any], bool]
     return frontier, complete
 
 
+_PLAIN_NUMBER = re.compile(r"[+-]?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?")
+
+
 def _sum_amounts(values: list[Any]) -> Decimal | float:
     """Sum amounts. A float is returned as-is so ``ToolCallContext`` rejects it."""
     total = Decimal(0)
@@ -93,15 +97,19 @@ def _sum_amounts(values: list[Any]) -> Decimal | float:
                 return v
             if isinstance(v, bool) or not isinstance(v, (str, int, Decimal)):
                 raise ValueError(f"invalid amount of type {type(v).__name__}")
+            if isinstance(v, str) and _PLAIN_NUMBER.fullmatch(v) is None:
+                # Decimal also reads "1_000", " 100 " and non-ASCII digits; the protected tool
+                # may read that text differently, so only a plain ASCII number is accepted.
+                raise ValueError("amount is not a plain ASCII number")
             try:
                 d = Decimal(str(v))
             except InvalidOperation as exc:
-                raise ValueError(f"invalid decimal amount: {v}") from exc
+                raise ValueError("invalid decimal amount") from exc
             if not d.is_finite():
-                raise ValueError(f"amount must be finite: {v}")
+                raise ValueError("amount must be finite")
             if d < 0:
                 # A negative element would let a bulk call net itself below every threshold.
-                raise ValueError(f"negative amount in a bulk call: {v}")
+                raise ValueError("negative amount in a bulk call")
             total += d
     except ArithmeticError as exc:
         raise ValueError("amount is out of range") from exc
@@ -157,10 +165,12 @@ def _conventional_money(
     elif isinstance(raw_amount, float):
         amount = raw_amount
     else:
+        if isinstance(raw_amount, str) and _PLAIN_NUMBER.fullmatch(raw_amount) is None:
+            raise ValueError("amount is not a plain ASCII number")
         try:
             amount = Decimal(str(raw_amount))
         except (InvalidOperation, ValueError) as exc:
-            raise ValueError(f"invalid decimal amount: {raw_amount}") from exc
+            raise ValueError("invalid decimal amount") from exc
 
     raw_currency = arguments.get("currency")
     currency = str(raw_currency).upper() if raw_currency is not None else None
